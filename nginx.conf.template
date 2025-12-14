@@ -21,6 +21,13 @@ server {
         add_header Access-Control-Allow-Origin *;
     }
 
+    # WebP images (favicon, etc.)
+    location ~ \.webp$ {
+        add_header Content-Type image/webp;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        access_log off;
+    }
+
     # Serve static files
     location / {
         try_files $uri $uri/ /index.html;
