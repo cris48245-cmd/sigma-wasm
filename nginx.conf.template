@@ -24,10 +24,14 @@ server {
     # Serve favicon.ico directly (universal browser support)
     # Browsers automatically request /favicon.ico regardless of <link> tags
     # ICO format ensures compatibility across all browsers including Edge
+    # Root is inherited from server level, file served from /usr/share/nginx/html/favicon.ico
     location = /favicon.ico {
+        # Explicitly serve file from root (inherited from server block)
+        # Nginx automatically serves matching files from root directory
         add_header Content-Type image/x-icon;
         add_header Cache-Control "public, max-age=31536000, immutable";
         access_log off;
+        log_not_found off;
     }
 
     # WebP images (favicon, etc.)
