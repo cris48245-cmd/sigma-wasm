@@ -66,6 +66,7 @@ COPY src ./src
 COPY index.html ./
 COPY vite.config.ts ./
 COPY tsconfig.json ./
+COPY public ./public
 
 # Build frontend
 # WASM is already built in stage 1, so just run vite build (skip build:wasm)
