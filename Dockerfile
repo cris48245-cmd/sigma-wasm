@@ -27,6 +27,9 @@ COPY Cargo.toml ./
 COPY wasm-astar/Cargo.toml ./wasm-astar/
 COPY wasm-preprocess/Cargo.toml ./wasm-preprocess/
 
+# Add wasm32 target (must be done before building for wasm32-unknown-unknown)
+RUN rustup target add wasm32-unknown-unknown
+
 # Create dummy src files to cache dependencies
 RUN mkdir -p wasm-astar/src wasm-preprocess/src && \
     echo "fn main() {}" > wasm-astar/src/lib.rs || true && \
@@ -42,9 +45,6 @@ COPY scripts ./scripts
 
 # Make build scripts executable
 RUN chmod +x scripts/build.sh scripts/build-wasm.sh
-
-# Add wasm32 target
-RUN rustup target add wasm32-unknown-unknown
 
 # Build WASM module
 RUN ./scripts/build.sh
