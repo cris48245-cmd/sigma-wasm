@@ -104,6 +104,98 @@ function copyDir(src: string, dest: string, moduleName: string): void {
   }
 }
 
+// Plugin to remove __vitePreload wrapper for external pkg/ imports
+// Vite's __vitePreload wrapper can interfere with external module loading
+// This plugin rewrites __vitePreload(()=>import("/pkg/...")) to direct import("/pkg/...")
+// Note: This must run AFTER Vite's internal plugins that add __vitePreload
+function removeVitePreload(): Plugin {
+  return {
+    name: 'remove-vite-preload',
+    enforce: 'post', // Run after Vite's internal plugins
+    renderChunk(code, chunk) {
+      // Check if this chunk contains pkg/ imports
+      if (!code.includes('/pkg/')) {
+        return null;
+      }
+      
+      // Check if it contains __vitePreload with pkg/
+      const hasVitePreload = code.includes('__vitePreload') && code.includes('/pkg/');
+      if (!hasVitePreload) {
+        return null;
+      }
+      
+      let modifiedCode = code;
+      
+      // Try multiple patterns to catch all variations
+      let totalReplacements = 0;
+      
+      // Pattern 1: Match with []: __vitePreload(()=>import("/pkg/..."),[])
+      const pattern1 = /__vitePreload\s*\(\s*\(\)\s*=>\s*import\s*\((['"])\/pkg\/([^'"]+)\1\)\s*,\s*\[\]\s*\)/g;
+      modifiedCode = modifiedCode.replace(pattern1, (match, quote, path) => {
+        totalReplacements++;
+        return `import(${quote}/pkg/${path}${quote})`;
+      });
+      
+      // Pattern 2: Match with __VITE_IS_MODERN__ condition: __vitePreload(() => import('/pkg/...'),__VITE_IS_MODERN__?__VITE_PRELOAD__:void)
+      // This is the actual pattern Vite uses in production builds
+      const pattern2 = /__vitePreload\s*\(\s*\(\)\s*=>\s*import\s*\((['"])\/pkg\/([^'"]+)\1\)\s*,\s*[^)]+\)/g;
+      modifiedCode = modifiedCode.replace(pattern2, (match, quote, path) => {
+        totalReplacements++;
+        return `import(${quote}/pkg/${path}${quote})`;
+      });
+      
+      if (totalReplacements === 0) {
+        return null;
+      }
+      
+      return modifiedCode !== code ? { code: modifiedCode, map: null } : null;
+    },
+    generateBundle(options, bundle) {
+      // Also process in generateBundle as fallback (runs after renderChunk)
+      let totalReplacements = 0;
+      for (const [fileName, chunkOrAsset] of Object.entries(bundle)) {
+        if (chunkOrAsset.type === 'chunk' && chunkOrAsset.code) {
+          let code = chunkOrAsset.code;
+          const beforeCount = (code.match(/__vitePreload[^)]*import[^)]*\/pkg[^)]*\)/g) || []).length;
+          
+          if (beforeCount === 0) {
+            continue;
+          }
+          
+          // Remove __vitePreload wrapper - match both patterns
+          // Pattern 1: with []
+          code = code.replace(
+            /__vitePreload\s*\(\s*\(\)\s*=>\s*import\s*\((['"])\/pkg\/([^'"]+)\1\)\s*,\s*\[\]\s*\)/g,
+            (match, quote, path) => {
+              totalReplacements++;
+              return `import(${quote}/pkg/${path}${quote})`;
+            }
+          );
+          
+          // Pattern 2: with __VITE_IS_MODERN__ condition
+          code = code.replace(
+            /__vitePreload\s*\(\s*\(\)\s*=>\s*import\s*\((['"])\/pkg\/([^'"]+)\1\)\s*,\s*[^)]+\)/g,
+            (match, quote, path) => {
+              totalReplacements++;
+              return `import(${quote}/pkg/${path}${quote})`;
+            }
+          );
+          
+          const afterCount = (code.match(/__vitePreload[^)]*import[^)]*\/pkg[^)]*\)/g) || []).length;
+          if (beforeCount > afterCount) {
+            console.log(`[remove-vite-preload] generateBundle: Replaced ${beforeCount - afterCount} occurrences in ${fileName}`);
+          }
+          
+          chunkOrAsset.code = code;
+        }
+      }
+      if (totalReplacements > 0) {
+        console.log(`[remove-vite-preload] generateBundle: Total replacements: ${totalReplacements}`);
+      }
+    },
+  };
+}
+
 // Plugin to rewrite pkg/ import paths to absolute paths
 function rewriteWasmImports(): Plugin {
   return {
@@ -163,6 +255,44 @@ function rewriteWasmImports(): Plugin {
   };
 }
 
+// Validate that a copied WASM module file has all expected exports
+function validateWasmModuleExports(filePath: string, moduleName: string): void {
+  const content = readFileSync(filePath, 'utf-8');
+  
+  // Define expected exports for each module
+  const expectedExports: Record<string, string[]> = {
+    wasm_agent_tools: ['calculate', 'process_text', 'get_stats'],
+    wasm_preprocess_image_captioning: ['preprocess_image', 'preprocess_image_crop', 'apply_contrast', 'apply_cinematic_filter', 'get_preprocess_stats', 'set_contrast', 'set_cinematic', 'get_contrast', 'get_cinematic', 'apply_sepia_filter', 'set_sepia'],
+    wasm_preprocess: ['preprocess_image', 'preprocess_image_crop', 'preprocess_image_for_smolvlm', 'apply_contrast', 'apply_cinematic_filter', 'get_preprocess_stats', 'set_contrast', 'set_cinematic', 'get_contrast', 'get_cinematic'],
+    wasm_preprocess_256m: ['preprocess_image', 'preprocess_image_crop', 'apply_contrast', 'apply_cinematic_filter', 'get_preprocess_stats', 'set_contrast', 'set_cinematic', 'get_contrast', 'get_cinematic'],
+    wasm_astar: ['wasm_init', 'tick', 'key_down', 'key_up', 'mouse_move'],
+  };
+  
+  const expected = expectedExports[moduleName];
+  if (!expected) {
+    // Module not in our list, skip validation
+    return;
+  }
+  
+  const missingExports: string[] = [];
+  for (const exportName of expected) {
+    // Check for export function exportName or export const exportName
+    const exportPattern = new RegExp(`export\\s+(function|const|let|var)\\s+${exportName}\\s*[=(]`, 'g');
+    if (!exportPattern.test(content)) {
+      missingExports.push(exportName);
+    }
+  }
+  
+  if (missingExports.length > 0) {
+    throw new Error(
+      `Module ${moduleName} is missing required exports: ${missingExports.join(', ')}. ` +
+      `File: ${filePath}`
+    );
+  }
+  
+  console.log(`[copy-wasm-modules] ✓ Validated ${moduleName}: all ${expected.length} exports present`);
+}
+
 // Plugin to copy pkg directory to dist/pkg during build
 function copyWasmModules(): Plugin {
   return {
@@ -174,22 +304,36 @@ function copyWasmModules(): Plugin {
       const distPkgDir = resolve(__dirname, 'dist', 'pkg');
 
       if (existsSync(pkgDir)) {
+        console.log(`[copy-wasm-modules] Copying pkg/ directory from ${pkgDir} to ${distPkgDir}`);
+        
         // Remove existing dist/pkg if it exists to ensure clean copy
         if (existsSync(distPkgDir)) {
           rmSync(distPkgDir, { recursive: true, force: true });
         }
+        
         // Copy with base path for import.meta.url rewriting
         const entries = readdirSync(pkgDir, { withFileTypes: true });
         for (const entry of entries) {
           if (entry.isDirectory()) {
             const moduleName = entry.name;
+            console.log(`[copy-wasm-modules] Copying module: ${moduleName}`);
             copyDir(
               join(pkgDir, moduleName),
               join(distPkgDir, moduleName),
               moduleName
             );
+            
+            // Validate the copied JS file has all expected exports
+            const jsFilePath = join(distPkgDir, moduleName, `${moduleName}.js`);
+            if (existsSync(jsFilePath)) {
+              validateWasmModuleExports(jsFilePath, moduleName);
+            }
           }
         }
+        
+        console.log(`[copy-wasm-modules] ✓ Copy complete`);
+      } else {
+        console.warn(`[copy-wasm-modules] Warning: pkg/ directory not found at ${pkgDir}`);
       }
     },
     buildEnd() {
@@ -198,6 +342,7 @@ function copyWasmModules(): Plugin {
       const distPkgDir = resolve(__dirname, 'dist', 'pkg');
 
       if (existsSync(pkgDir) && !existsSync(distPkgDir)) {
+        console.log(`[copy-wasm-modules] Fallback: Copying pkg/ directory in buildEnd hook`);
         const entries = readdirSync(pkgDir, { withFileTypes: true });
         for (const entry of entries) {
           if (entry.isDirectory()) {
@@ -207,6 +352,12 @@ function copyWasmModules(): Plugin {
               join(distPkgDir, moduleName),
               moduleName
             );
+            
+            // Validate the copied JS file
+            const jsFilePath = join(distPkgDir, moduleName, `${moduleName}.js`);
+            if (existsSync(jsFilePath)) {
+              validateWasmModuleExports(jsFilePath, moduleName);
+            }
           }
         }
       }
@@ -215,7 +366,7 @@ function copyWasmModules(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [devServerRouting(), rewriteWasmImports(), copyWasmModules()],
+  plugins: [devServerRouting(), removeVitePreload(), rewriteWasmImports(), copyWasmModules()],
   build: {
     target: 'esnext',
     assetsInlineLimit: 0, // Prevent WASM from being inlined as data URIs
@@ -238,7 +389,26 @@ export default defineConfig({
         // 2. import.meta.url (so WASM binary paths work correctly)
         // The rewriteWasmImports plugin rewrites import paths to absolute /pkg/ paths
         // The copyWasmModules plugin copies files to dist/pkg/ with rewritten WASM paths
-        return id.includes('/pkg/') || id.includes('\\pkg\\');
+        
+        // Handle various path formats:
+        // - /pkg/... (absolute)
+        // - ./pkg/... or ../pkg/... (relative)
+        // - pkg/... (no leading slash)
+        // - Windows paths with backslashes
+        const isExternal = 
+          id.includes('/pkg/') || 
+          id.includes('\\pkg\\') ||
+          id.startsWith('pkg/') ||
+          id.startsWith('./pkg/') ||
+          id.startsWith('../pkg/') ||
+          /^\.\.\/.*pkg\//.test(id) ||
+          /^\.\/.*pkg\//.test(id);
+        
+        if (isExternal) {
+          console.log(`[vite-external] Marking as external: ${id}`);
+        }
+        
+        return isExternal;
       },
     },
   },
