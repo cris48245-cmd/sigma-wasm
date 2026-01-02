@@ -202,9 +202,10 @@ let addLogEntry: ((message: string, type?: 'info' | 'success' | 'warning' | 'err
 let lastUserPrompt: string | null = null;
 
 /**
- * Store the current maxLayer for rendering
+ * Store the current number of rings for rendering
+ * Default to 5 rings
  */
-let currentMaxLayer: number = 30;
+let currentRings: number = 5;
 
 /**
  * Convert WASM tile type number to TypeScript TileType
@@ -819,9 +820,14 @@ async function loadCachedPatterns(): Promise<Array<CachedPattern>> {
           constraints.buildingSizeHint = buildingSizeHintValue;
         }
         
+        const ringsValue = getPropertyValue(constraintsObj, 'rings');
+        if (typeof ringsValue === 'number') {
+          constraints.rings = ringsValue;
+        }
+        // Legacy support: also check for maxLayer
         const maxLayerValue = getPropertyValue(constraintsObj, 'maxLayer');
-        if (typeof maxLayerValue === 'number') {
-          constraints.maxLayer = maxLayerValue;
+        if (typeof maxLayerValue === 'number' && constraints.rings === undefined) {
+          constraints.rings = maxLayerValue;
         }
         
         const primaryTileTypeValue = getPropertyValue(constraintsObj, 'primaryTileType');
@@ -1383,14 +1389,22 @@ async function parseLayoutConstraints(
             }
           }
 
+          const ringsEntry = entries.find(([key]) => key === 'rings');
+          if (ringsEntry && typeof ringsEntry[1] === 'number') {
+            const rings = ringsEntry[1];
+            if (rings >= 0 && rings <= 50) {
+              // Only set if not already set from prompt extraction
+              if (result.rings === undefined) {
+                result.rings = rings;
+              }
+            }
+          }
+          // Legacy support: also check for maxLayer
           const maxLayerEntry = entries.find(([key]) => key === 'maxLayer');
-          if (maxLayerEntry && typeof maxLayerEntry[1] === 'number') {
+          if (maxLayerEntry && typeof maxLayerEntry[1] === 'number' && result.rings === undefined) {
             const maxLayer = maxLayerEntry[1];
             if (maxLayer > 0 && maxLayer <= 50) {
-              // Only set if not already set from prompt extraction
-              if (result.maxLayer === undefined) {
-                result.maxLayer = maxLayer;
-              }
+              result.rings = maxLayer;
             }
           }
 
@@ -1469,8 +1483,8 @@ async function parseLayoutConstraints(
     if (result.buildingCount !== undefined) {
       addLogEntry(`  - buildingCount: ${result.buildingCount} (specific request)`, 'info');
     }
-    if (result.maxLayer !== undefined) {
-      addLogEntry(`  - maxLayer: ${result.maxLayer}`, 'info');
+    if (result.rings !== undefined) {
+      addLogEntry(`  - rings: ${result.rings}`, 'info');
     }
     if (result.excludeTileTypes && result.excludeTileTypes.length > 0) {
       addLogEntry(`  - excludeTileTypes: ${result.excludeTileTypes.join(', ')}`, 'info');
@@ -1578,22 +1592,29 @@ function executeLayoutFunction(
       }
     }
   } else if (functionName === 'set_grid_size') {
-    const maxLayerStr = args.maxLayer;
-    if (maxLayerStr) {
-      const maxLayer = Number.parseInt(maxLayerStr, 10);
-      if (!Number.isNaN(maxLayer) && maxLayer > 0 && maxLayer <= 50) {
-        updatedConstraints.maxLayer = maxLayer;
+    const ringsStr = args.rings;
+    if (ringsStr) {
+      const rings = Number.parseInt(ringsStr, 10);
+      if (!Number.isNaN(rings) && rings >= 0 && rings <= 50) {
+        updatedConstraints.rings = rings;
         if (addLogEntry !== null) {
-          addLogEntry(`Set grid size (maxLayer): ${maxLayer}`, 'success');
+          addLogEntry(`Set grid size (rings): ${rings}`, 'success');
         }
       } else {
         if (addLogEntry !== null) {
-          addLogEntry(`Invalid maxLayer value: ${maxLayerStr}. Must be between 1 and 50`, 'warning');
+          addLogEntry(`Invalid rings value: ${ringsStr}. Must be between 0 and 50`, 'warning');
         }
       }
-    } else {
-      if (addLogEntry !== null) {
-        addLogEntry(`Missing maxLayer parameter`, 'warning');
+    }
+    // Legacy support: also check for maxLayer
+    const maxLayerStr = args.maxLayer;
+    if (maxLayerStr && updatedConstraints.rings === undefined) {
+      const maxLayer = Number.parseInt(maxLayerStr, 10);
+      if (!Number.isNaN(maxLayer) && maxLayer > 0 && maxLayer <= 50) {
+        updatedConstraints.rings = maxLayer;
+        if (addLogEntry !== null) {
+          addLogEntry(`Set grid size (maxLayer, legacy): ${maxLayer}`, 'success');
+        }
       }
     }
   } else if (functionName === 'set_building_rules') {
@@ -1954,22 +1975,22 @@ const HEX_UTILS = {
   },
 
   /**
-   * Generate all tiles in hexagon up to maxLayer
-   * Layer 0: 1 tile (center)
-   * Layer n: adds 6n tiles (ring)
-   * Total: 3*maxLayer*(maxLayer+1) + 1 tiles
+   * Generate all tiles in hexagon up to rings
+   * Ring 0: 1 tile (center)
+   * Ring n: adds 6n tiles
+   * Total: 3*rings*(rings+1) + 1 tiles
    * 
    * Uses Set for deduplication and O(1) lookups, then converts to array.
    */
-  generateHexGrid(maxLayer: number, centerQ: number, centerR: number): Array<HexCoord> {
+  generateHexGrid(rings: number, centerQ: number, centerR: number): Array<HexCoord> {
     // Use Set with string keys for deduplication and O(1) lookups
     const gridSet = new Set<string>();
     const centerCube = this.axialToCube(centerQ, centerR);
     
     // Generate grid from center outwards, adding one ring at a time
-    for (let layer = 0; layer <= maxLayer; layer++) {
-      const ring = this.cubeRing(centerCube, layer);
-      for (const cube of ring) {
+    for (let ring = 0; ring <= rings; ring++) {
+      const ringHexes = this.cubeRing(centerCube, ring);
+      for (const cube of ringHexes) {
         // Use tuple of coordinates as hashable key for the set
         const key = `${cube.q},${cube.r},${cube.s}`;
         gridSet.add(key);
@@ -1992,7 +2013,7 @@ const HEX_UTILS = {
     }
     
     // Validate grid size matches expected formula
-    const expectedSize = 3 * maxLayer * (maxLayer + 1) + 1;
+    const expectedSize = 3 * rings * (rings + 1) + 1;
     if (grid.length !== expectedSize) {
       console.error(`Hexagon grid size mismatch: expected ${expectedSize}, got ${grid.length}`);
     }
@@ -2010,18 +2031,18 @@ const HEX_UTILS = {
    * Total tiles up to layer n: 3n(n+1) + 1
    * For n=30: 3×30×31 + 1 = 2791 tiles
    * 
-   * @param maxLayer - Maximum layer number (distance from center)
+   * @param rings - Number of rings (distance from center)
    * @param q - Axial q coordinate
    * @param r - Axial r coordinate
    * @param centerQ - Center q coordinate
    * @param centerR - Center r coordinate
-   * @returns True if hex is within maxLayer distance from center (using cube distance)
+   * @returns True if hex is within rings distance from center (using cube distance)
    */
-  isInHexagonPattern(maxLayer: number, q: number, r: number, centerQ: number, centerR: number): boolean {
+  isInHexagonPattern(rings: number, q: number, r: number, centerQ: number, centerR: number): boolean {
     const centerCube = this.axialToCube(centerQ, centerR);
     const tileCube = this.axialToCube(q, r);
     const dist = this.cubeDistance(tileCube, centerCube);
-    return dist <= maxLayer;
+    return dist <= rings;
   },
 };
 
@@ -2395,13 +2416,13 @@ function constraintsToPreConstraints(
     return [];
   }
 
-  // Use hexagon pattern - use maxLayer from constraints or default to 30
-  const maxLayer = constraints.maxLayer ?? 30;
-  // Update global currentMaxLayer for rendering
-  currentMaxLayer = maxLayer;
+  // Use hexagon pattern - use rings from constraints or default to currentRings (default 5)
+  const rings = constraints.rings ?? currentRings;
+  // Update global currentRings for rendering
+  currentRings = rings;
   
   if (addLogEntry !== null) {
-    addLogEntry(`Using maxLayer: ${maxLayer} (expected tiles: ${3 * maxLayer * (maxLayer + 1) + 1})`, 'info');
+    addLogEntry(`Using rings: ${rings} (expected tiles: ${3 * rings * (rings + 1) + 1})`, 'info');
   }
   
   // Center at (0, 0) for simplicity - hexagon centered at origin
@@ -2409,12 +2430,12 @@ function constraintsToPreConstraints(
   const centerR = 0;
 
   // Generate hexagon grid for reference
-  const hexGrid = HEX_UTILS.generateHexGrid(maxLayer, centerQ, centerR);
+  const hexGrid = HEX_UTILS.generateHexGrid(rings, centerQ, centerR);
   const totalTiles = hexGrid.length;
-  const expectedTiles = 3 * maxLayer * (maxLayer + 1) + 1;
+  const expectedTiles = 3 * rings * (rings + 1) + 1;
 
   if (addLogEntry !== null) {
-    addLogEntry(`Hexagon Grid Generation: Generated ${hexGrid.length} tiles (expected: ${expectedTiles} for layer ${maxLayer})`, 'info');
+    addLogEntry(`Hexagon Grid Generation: Generated ${hexGrid.length} tiles (expected: ${expectedTiles} for ${rings} rings)`, 'info');
   }
 
   // Step 1: Generate Voronoi regions for forest, water, and grass using WASM
@@ -2486,7 +2507,7 @@ function constraintsToPreConstraints(
   let voronoiJson: string;
   try {
     const result = WASM_BABYLON_CHUNKS.wasmModule.generate_voronoi_regions(
-      maxLayer,
+      rings,
       centerQ,
       centerR,
       forestSeeds,
@@ -3103,8 +3124,8 @@ async function generateLayoutFromText(
       if (constraints.roadDensity !== undefined) {
         addLogEntry(`  - roadDensity: ${constraints.roadDensity} (${Math.floor(constraints.roadDensity * 100)}%)`, 'info');
       }
-      if (constraints.maxLayer !== undefined) {
-        addLogEntry(`  - maxLayer: ${constraints.maxLayer}`, 'info');
+      if (constraints.rings !== undefined) {
+        addLogEntry(`  - rings: ${constraints.rings}`, 'info');
       }
       if (constraints.buildingRules) {
         addLogEntry(`  - buildingRules: ${JSON.stringify(constraints.buildingRules)}`, 'info');
@@ -3483,13 +3504,13 @@ export const init = async (): Promise<void> => {
    * This function queries WASM for each hexagon tile and counts tile types.
    * Uses hash map storage, so no bounds checking needed.
    * 
-   * @param maxLayer - Maximum layer number (distance from center)
+   * @param rings - Number of rings (distance from center)
    * @param centerQ - Center q coordinate (axial)
    * @param centerR - Center r coordinate (axial)
    * @returns Stats object with tile counts, or null if WASM module unavailable
    */
   const getHexagonStats = (
-    maxLayer: number,
+    rings: number,
     centerQ: number,
     centerR: number
   ): {
@@ -3505,7 +3526,7 @@ export const init = async (): Promise<void> => {
     }
     
     // Generate hexagon grid
-    const hexGrid = HEX_UTILS.generateHexGrid(maxLayer, centerQ, centerR);
+    const hexGrid = HEX_UTILS.generateHexGrid(rings, centerQ, centerR);
     
     // Initialize counters
     let grass = 0;
@@ -3610,11 +3631,11 @@ export const init = async (): Promise<void> => {
     // Use tile dimensions from TILE_CONFIG
     const hexSize = TILE_CONFIG.hexSize;
     const hexHeight = TILE_CONFIG.hexHeight;
-    // Use currentMaxLayer from constraints, not hardcoded value
-    const renderMaxLayer = currentMaxLayer;
+    // Use currentRings from global state
+    const renderRings = currentRings;
     
     if (addLogEntry !== null) {
-      addLogEntry(`Rendering with maxLayer: ${renderMaxLayer} (expected tiles: ${3 * renderMaxLayer * (renderMaxLayer + 1) + 1})`, 'info');
+      addLogEntry(`Rendering with rings: ${renderRings} (expected tiles: ${3 * renderRings * (renderRings + 1) + 1})`, 'info');
     }
     
     // Center at (0, 0) - hexagon centered at origin
@@ -3622,7 +3643,7 @@ export const init = async (): Promise<void> => {
     const renderCenterR = 0;
     
     // Generate hexagon grid - all tiles will be rendered
-    const renderHexGrid = HEX_UTILS.generateHexGrid(renderMaxLayer, renderCenterQ, renderCenterR);
+    const renderHexGrid = HEX_UTILS.generateHexGrid(renderRings, renderCenterQ, renderCenterR);
     
     // Calculate center hex's world position for proper centering
     const centerWorldPos = HEX_UTILS.hexToWorld(renderCenterQ, renderCenterR, hexSize);
@@ -3793,8 +3814,8 @@ export const init = async (): Promise<void> => {
       const logEntryFn: (message: string, type?: 'info' | 'success' | 'warning' | 'error') => void = addLogEntry;
       try {
         // Calculate expected hexagon tile count
-        const expectedHexagonTiles = 3 * renderMaxLayer * (renderMaxLayer + 1) + 1;
-        logEntryFn(`Stats: Expected hexagon tiles: ${expectedHexagonTiles} (layer ${renderMaxLayer})`, 'info');
+        const expectedHexagonTiles = 3 * renderRings * (renderRings + 1) + 1;
+        logEntryFn(`Stats: Expected hexagon tiles: ${expectedHexagonTiles} (${renderRings} rings)`, 'info');
         
         // Get WASM stats (from hash map)
         const statsJson = WASM_BABYLON_CHUNKS.wasmModule.get_stats();
@@ -3841,7 +3862,7 @@ export const init = async (): Promise<void> => {
               logEntryFn(`Stats: WASM total: ${wasmStats.total} tiles`, 'info');
               
               // Get filtered hexagon stats (only counts hexagon tiles)
-              const hexagonStats = getHexagonStats(renderMaxLayer, renderCenterQ, renderCenterR);
+              const hexagonStats = getHexagonStats(renderRings, renderCenterQ, renderCenterR);
               
               if (hexagonStats) {
                 logEntryFn(`Stats: Hexagon filtered total: ${hexagonStats.total} tiles (expected: ${expectedHexagonTiles})`, 'info');
@@ -3980,6 +4001,45 @@ export const init = async (): Promise<void> => {
             errorEl.textContent = `Error: ${errorMsg}`;
           }
         });
+      }
+    });
+  }
+
+  // Rings dropdown handler
+  const ringsSelectEl = document.getElementById('ringsSelect');
+  if (ringsSelectEl && ringsSelectEl instanceof HTMLSelectElement) {
+    // Set initial value to currentRings (default 5)
+    ringsSelectEl.value = currentRings.toString();
+    
+    ringsSelectEl.addEventListener('change', () => {
+      const selectedRings = Number.parseInt(ringsSelectEl.value, 10);
+      if (!Number.isNaN(selectedRings) && selectedRings >= 0 && selectedRings <= 50) {
+        // Update global rings
+        currentRings = selectedRings;
+        
+        // Clear all state
+        if (WASM_BABYLON_CHUNKS.wasmModule) {
+          // Clear WASM grid
+          WASM_BABYLON_CHUNKS.wasmModule.clear_layout();
+          // Clear pre-constraints
+          WASM_BABYLON_CHUNKS.wasmModule.clear_pre_constraints();
+        }
+        
+        // Clear last user prompt
+        lastUserPrompt = null;
+        
+        // Clear thin instances
+        const baseMeshForCleanup = baseMeshes.get('base');
+        if (baseMeshForCleanup) {
+          baseMeshForCleanup.thinInstanceCount = 0;
+        }
+        
+        if (addLogEntry !== null) {
+          addLogEntry(`Rings changed to ${selectedRings}, cleared all state`, 'info');
+        }
+        
+        // Re-render with new rings
+        renderGrid();
       }
     });
   }

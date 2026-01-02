@@ -109,6 +109,18 @@
             <div class="preprocess-section">
                 <h2>3D Visualization</h2>
                 <p>The WFC-generated grid is rendered below. Use mouse controls to navigate.</p>
+                <div class="rings-select-container">
+                    <label for="ringsSelect">Number of Rings:</label>
+                    <select id="ringsSelect" class="rings-select">
+                        <option value="0">0 rings</option>
+                        <option value="1">1 ring</option>
+                        <option value="2">2 rings</option>
+                        <option value="5" selected>5 rings</option>
+                        <option value="10">10 rings</option>
+                        <option value="20">20 rings</option>
+                        <option value="40">40 rings</option>
+                    </select>
+                </div>
                 <canvas id="renderCanvas" style="width: 100%; height: 600px; display: block; border: 1px solid #333;"></canvas>
             </div>
             

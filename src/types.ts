@@ -253,6 +253,8 @@ export interface LayoutConstraints {
   buildingSizeHint: 'small' | 'medium' | 'large';
   voronoiSeeds?: VoronoiSeeds;
   roadDensity?: number;
+  rings?: number;
+  /** @deprecated Use rings instead */
   maxLayer?: number;
   buildingRules?: BuildingRules;
   buildingCount?: number;
