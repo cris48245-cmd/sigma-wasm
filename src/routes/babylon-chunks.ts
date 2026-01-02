@@ -8,7 +8,7 @@
  * **Key Features:**
  * - WFC algorithm implemented in Rust WASM
  * - 5 different 3D tile types
- * - GLB model loading for hex tiles (17.3m x 20m, pointy-top orientation)
+ * - GLB model loading for hex tiles (see TILE_CONFIG for dimensions, pointy-top orientation)
  * - Mesh instancing for performance
  * - Babylon 2D UI for controls
  * - Fullscreen support
@@ -17,9 +17,10 @@
 import type { WasmBabylonWfc as WasmBabylonChunks, WasmModuleBabylonWfc as WasmModuleBabylonChunks, TileType, LayoutConstraints, BuildingRules } from '../types';
 import { loadWasmModule, validateWasmModule } from '../wasm/loader';
 import { WasmLoadError, WasmInitError } from '../wasm/types';
-import { Engine, Scene, ArcRotateCamera, HemisphericLight, DirectionalLight, Vector3, Mesh, StandardMaterial, Color3, InstancedMesh } from '@babylonjs/core';
+import { Engine, Scene, ArcRotateCamera, HemisphericLight, DirectionalLight, Vector3, Mesh, StandardMaterial, Color3, Matrix, Quaternion } from '@babylonjs/core';
 import '@babylonjs/loaders/glTF';
 import { SceneLoader } from '@babylonjs/core';
+import '@babylonjs/core/Meshes/thinInstanceMesh';
 import { AdvancedDynamicTexture, Button } from '@babylonjs/gui';
 // Worker message and response types using discriminated unions
 type LoadEmbeddingMessage = {
@@ -73,6 +74,29 @@ type WorkerResponse = LoadedResponse | EmbeddingResultResponse | LayoutResultRes
 let babylonChunksWorker: Worker | null = null;
 
 import { PARAMETER_SET_PATTERNS, type ParameterSetPattern } from '../parameter-set-embedding-prompts';
+
+/**
+ * Tile Configuration
+ * 
+ * **Learning Point**: Centralized configuration for tile dimensions ensures consistency
+ * and makes it easy to adjust tile sizes without hunting through the codebase.
+ */
+const TILE_CONFIG = {
+  /** Model width in meters (flat-to-flat dimension for pointy-top hex) */
+  modelWidth: 17.3,
+  /** Model depth in meters (pointy-top to pointy-top dimension) */
+  modelDepth: 20.0,
+  /** Tile height in meters (vertical dimension) */
+  hexHeight: 0.3,
+  /**
+   * Calculated hexSize in meters (distance from center to vertex)
+   * For pointy-top hex: depth = hexSize * 3
+   * Therefore: hexSize = modelDepth / 3
+   */
+  get hexSize(): number {
+    return this.modelDepth / 3.0;
+  },
+} as const;
 
 /**
  * WASM module reference - stored as Record after validation
@@ -517,55 +541,63 @@ function isCachedPatternStored(data: unknown): data is { pattern: string; embedd
     return false;
   }
   
-  // Use indexed access to safely check properties without type assertion
-  // TypeScript narrows 'object' to allow property access after null check
+  // Use built-in control flow with 'in' + typeof checks - TS narrows step-by-step
+  // Single narrow cast after exhaustive checks
   if (!('pattern' in data) || !('embedding' in data) || !('constraints' in data)) {
     return false;
   }
   
-  // Access properties - TypeScript knows they exist from 'in' checks
-  // We need to extract to unknown first to avoid unsafe access warnings
-  const dataRecord: Record<string, unknown> = data;
-  const patternValue = dataRecord.pattern;
-  const embeddingValue = dataRecord.embedding;
-  const constraintsValue = dataRecord.constraints;
+  // Use built-in control flow - single narrow cast after exhaustive checks
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+  const obj = data as Record<'pattern' | 'embedding' | 'constraints', unknown>;
   
   // Exhaustive validation of required properties
   return (
-    typeof patternValue === 'string' &&
-    Array.isArray(embeddingValue) &&
-    embeddingValue.every((n): n is number => typeof n === 'number' && !Number.isNaN(n) && Number.isFinite(n)) &&
-    typeof constraintsValue === 'object' &&
-    constraintsValue !== null
+    typeof obj.pattern === 'string' &&
+    Array.isArray(obj.embedding) &&
+    obj.embedding.every((n): n is number => typeof n === 'number' && !Number.isNaN(n) && Number.isFinite(n)) &&
+    typeof obj.constraints === 'object' &&
+    obj.constraints !== null
   );
 }
 
 /**
  * Generic helper to get typed results from IndexedDB with validator
- * Uses type predicate to safely narrow unknown to T without assertions
+ * Uses type predicate to safely narrow unknown to T
+ * Uses safeGetAll to avoid unsafe access to request.result
  */
 function getTypedAll<T>(
   store: IDBObjectStore,
   validator: (raw: unknown) => raw is T
 ): Promise<Array<T>> {
-  return new Promise<Array<T>>((resolve, reject) => {
-    const request = store.getAll();
-    request.onsuccess = () => {
-      const rawResults = request.result;
-      const results: Array<T> = [];
-      
-      // Validate each result using the type predicate
-      for (const raw of rawResults) {
-        if (validator(raw)) {
-          results.push(raw);
-        }
+  return safeGetAll(store).then((rawResults) => {
+    const results: Array<T> = [];
+    
+    // Validate each result using the type predicate
+    for (const raw of rawResults) {
+      if (validator(raw)) {
+        results.push(raw);
       }
-      
-      resolve(results);
+    }
+    
+    return results;
+  });
+}
+
+/**
+ * Helper to safely get all results from IndexedDB store
+ * Returns unknown[] to avoid unsafe access - narrow in consumer
+ */
+function safeGetAll(store: IDBObjectStore): Promise<unknown[]> {
+  return new Promise<unknown[]>((resolve, reject) => {
+    const req = store.getAll();
+    req.onsuccess = () => {
+      const result = req.result;
+      resolve(Array.isArray(result) ? result : []);
     };
-    request.onerror = () => {
-      if (request.error) {
-        reject(request.error);
+    req.onerror = () => {
+      if (req.error) {
+        reject(req.error);
       } else {
         reject(new Error('Failed to get all items from IndexedDB'));
       }
@@ -590,8 +622,13 @@ async function initPatternCacheDB(): Promise<IDBDatabase> {
     };
 
     request.onsuccess = () => {
-      const db = request.result;
-      resolve(db);
+      const result = request.result;
+      // Narrow result type - IDBOpenDBRequest.result is IDBDatabase on success
+      if (result instanceof IDBDatabase) {
+        resolve(result);
+      } else {
+        reject(new Error('IndexedDB request result is not a database'));
+      }
     };
 
     request.onupgradeneeded = (event) => {
@@ -599,10 +636,13 @@ async function initPatternCacheDB(): Promise<IDBDatabase> {
       if (!(target instanceof IDBOpenDBRequest)) {
         throw new Error('Event target is not IDBOpenDBRequest');
       }
-      const db = target.result;
-      if (!db.objectStoreNames.contains(PATTERN_CACHE_STORE_NAME)) {
-        const store = db.createObjectStore(PATTERN_CACHE_STORE_NAME, { keyPath: 'pattern' });
-        store.createIndex('pattern', 'pattern', { unique: true });
+      const result = target.result;
+      if (result instanceof IDBDatabase) {
+        const db = result;
+        if (!db.objectStoreNames.contains(PATTERN_CACHE_STORE_NAME)) {
+          const store = db.createObjectStore(PATTERN_CACHE_STORE_NAME, { keyPath: 'pattern' });
+          store.createIndex('pattern', 'pattern', { unique: true });
+        }
       }
     };
   });
@@ -697,46 +737,49 @@ async function loadCachedPatterns(): Promise<Array<CachedPattern>> {
       const constraints: Partial<LayoutConstraints> = {};
       const constraintsObj = stored.constraints;
       
+      // Helper function to safely get property value without type assertions
+      const getPropertyValue = (obj: unknown, key: string): unknown => {
+        if (typeof obj !== 'object' || obj === null) {
+          return undefined;
+        }
+        const descriptor = Object.getOwnPropertyDescriptor(obj, key);
+        if (descriptor && 'value' in descriptor) {
+          return descriptor.value;
+        }
+        return undefined;
+      };
+      
       // Validate and extract each constraint property with proper type narrowing
       if (typeof constraintsObj === 'object' && constraintsObj !== null) {
-        // Extract to Record to safely access properties without unsafe access warnings
-        // constraintsObj is already validated as object and not null
-        const constraintsRecord = constraintsObj;
-        
-        if ('buildingDensity' in constraintsRecord) {
-          const buildingDensityValue = constraintsRecord.buildingDensity;
-          if (buildingDensityValue === 'sparse' || buildingDensityValue === 'medium' || buildingDensityValue === 'dense') {
-            constraints.buildingDensity = buildingDensityValue;
-          }
+        // Extract and validate each property individually using helper function
+        const buildingDensityValue = getPropertyValue(constraintsObj, 'buildingDensity');
+        if (buildingDensityValue === 'sparse' || buildingDensityValue === 'medium' || buildingDensityValue === 'dense') {
+          constraints.buildingDensity = buildingDensityValue;
         }
         
-        if ('clustering' in constraintsRecord) {
-          const clusteringValue = constraintsRecord.clustering;
-          if (clusteringValue === 'clustered' || clusteringValue === 'distributed' || clusteringValue === 'random') {
-            constraints.clustering = clusteringValue;
-          }
+        const clusteringValue = getPropertyValue(constraintsObj, 'clustering');
+        if (clusteringValue === 'clustered' || clusteringValue === 'distributed' || clusteringValue === 'random') {
+          constraints.clustering = clusteringValue;
         }
         
-        if ('grassRatio' in constraintsRecord && typeof constraintsRecord.grassRatio === 'number') {
-          constraints.grassRatio = constraintsRecord.grassRatio;
+        const grassRatioValue = getPropertyValue(constraintsObj, 'grassRatio');
+        if (typeof grassRatioValue === 'number') {
+          constraints.grassRatio = grassRatioValue;
         }
         
-        if ('buildingSizeHint' in constraintsRecord) {
-          const buildingSizeHintValue = constraintsRecord.buildingSizeHint;
-          if (buildingSizeHintValue === 'small' || buildingSizeHintValue === 'medium' || buildingSizeHintValue === 'large') {
-            constraints.buildingSizeHint = buildingSizeHintValue;
-          }
+        const buildingSizeHintValue = getPropertyValue(constraintsObj, 'buildingSizeHint');
+        if (buildingSizeHintValue === 'small' || buildingSizeHintValue === 'medium' || buildingSizeHintValue === 'large') {
+          constraints.buildingSizeHint = buildingSizeHintValue;
         }
         
-        if ('maxLayer' in constraintsRecord && typeof constraintsRecord.maxLayer === 'number') {
-          constraints.maxLayer = constraintsRecord.maxLayer;
+        const maxLayerValue = getPropertyValue(constraintsObj, 'maxLayer');
+        if (typeof maxLayerValue === 'number') {
+          constraints.maxLayer = maxLayerValue;
         }
         
-        if ('primaryTileType' in constraintsRecord) {
-          const primaryTileTypeValue = constraintsRecord.primaryTileType;
-          if (primaryTileTypeValue === 'grass' || primaryTileTypeValue === 'building' || primaryTileTypeValue === 'road' || primaryTileTypeValue === 'forest' || primaryTileTypeValue === 'water') {
-            constraints.primaryTileType = primaryTileTypeValue;
-          }
+        const primaryTileTypeValue = getPropertyValue(constraintsObj, 'primaryTileType');
+        if (primaryTileTypeValue === 'grass' || primaryTileTypeValue === 'building' || primaryTileTypeValue === 'road' || primaryTileTypeValue === 'forest' || primaryTileTypeValue === 'water') {
+          constraints.primaryTileType = primaryTileTypeValue;
         }
       }
 
@@ -2401,6 +2444,12 @@ function constraintsToPreConstraints(
     grassSeeds
   );
 
+  // Debug: Log raw JSON for troubleshooting
+  if (addLogEntry !== null) {
+    const jsonPreview = voronoiJson.length > 200 ? `${voronoiJson.substring(0, 200)}...` : voronoiJson;
+    addLogEntry(`Voronoi JSON length: ${voronoiJson.length}, preview: ${jsonPreview}`, 'info');
+  }
+
   // Parse Voronoi regions from JSON
   const voronoiConstraints: Array<{ q: number; r: number; tileType: TileType }> = [];
   try {
@@ -2408,37 +2457,48 @@ function constraintsToPreConstraints(
     if (Array.isArray(parsed)) {
       for (const item of parsed) {
         if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
-          // Helper to safely get property from unknown object
-          // We've already validated item is an object, but TypeScript needs help
-          const getPropertyFromUnknown = (obj: unknown, key: string): unknown => {
-            if (typeof obj === 'object' && obj !== null) {
-              const descriptor = Object.getOwnPropertyDescriptor(obj, key);
-              return descriptor ? descriptor.value : undefined;
-            }
-            return undefined;
-          };
+          // Use direct property access with proper type narrowing
+          // Check if properties exist and have correct types
+          if ('q' in item && 'r' in item && 'tileType' in item) {
+            // Access properties using Object.getOwnPropertyDescriptor for type safety
+            const qDesc = Object.getOwnPropertyDescriptor(item, 'q');
+            const rDesc = Object.getOwnPropertyDescriptor(item, 'r');
+            const tileTypeDesc = Object.getOwnPropertyDescriptor(item, 'tileType');
+            
+            if (qDesc && 'value' in qDesc && rDesc && 'value' in rDesc && tileTypeDesc && 'value' in tileTypeDesc) {
+              // TypeScript needs explicit type checks before assignment
+              const qValueUnknown: unknown = qDesc.value;
+              const rValueUnknown: unknown = rDesc.value;
+              const tileTypeValueUnknown: unknown = tileTypeDesc.value;
 
-          const qCandidate = getPropertyFromUnknown(item, 'q');
-          const rCandidate = getPropertyFromUnknown(item, 'r');
-          const tileTypeCandidate = getPropertyFromUnknown(item, 'tileType');
-
-          if (
-            typeof qCandidate === 'number' &&
-            typeof rCandidate === 'number' &&
-            typeof tileTypeCandidate === 'number'
-          ) {
-            const tileType = tileTypeFromNumber(tileTypeCandidate);
-            if (tileType) {
-              voronoiConstraints.push({ q: qCandidate, r: rCandidate, tileType });
+              if (
+                typeof qValueUnknown === 'number' &&
+                typeof rValueUnknown === 'number' &&
+                typeof tileTypeValueUnknown === 'number'
+              ) {
+                // Now we know they're numbers, safe to use
+                const qValue: number = qValueUnknown;
+                const rValue: number = rValueUnknown;
+                const tileTypeValue: number = tileTypeValueUnknown;
+                
+                const tileType = tileTypeFromNumber(tileTypeValue);
+                if (tileType) {
+                  voronoiConstraints.push({ q: qValue, r: rValue, tileType });
+                }
+              }
             }
           }
         }
+      }
+    } else {
+      if (addLogEntry !== null) {
+        addLogEntry(`Voronoi JSON is not an array. Type: ${typeof parsed}`, 'warning');
       }
     }
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : 'Unknown error';
     if (addLogEntry !== null) {
-      addLogEntry(`Failed to parse Voronoi regions: ${errorMsg}`, 'warning');
+      addLogEntry(`Failed to parse Voronoi regions: ${errorMsg}. JSON: ${voronoiJson.substring(0, 500)}`, 'warning');
     }
   }
 
@@ -2447,6 +2507,11 @@ function constraintsToPreConstraints(
     const waterCount = voronoiConstraints.filter((pc) => pc.tileType.type === 'water').length;
     const grassCount = voronoiConstraints.filter((pc) => pc.tileType.type === 'grass').length;
     addLogEntry(`Voronoi regions: ${forestCount} forest, ${waterCount} water, ${grassCount} grass`, 'info');
+    
+    // Warn if regions are empty but seeds were requested
+    if (forestCount === 0 && waterCount === 0 && grassCount === 0 && (forestSeeds > 0 || waterSeeds > 0 || grassSeeds > 0)) {
+      addLogEntry(`Warning: No Voronoi regions generated despite requesting ${forestSeeds} forest, ${waterSeeds} water, ${grassSeeds} grass seeds`, 'warning');
+    }
   }
 
   // Step 2: Create a set of occupied hexes from Voronoi regions
@@ -3193,15 +3258,12 @@ export const init = async (): Promise<void> => {
   const directionalLight = new DirectionalLight('directionalLight', new Vector3(-1, -1, -1), scene);
   directionalLight.intensity = 0.5;
   
-  // Create base meshes for each tile type using GLB model
-  // **Learning Point**: We load the hex_tile.glb model once, then clone it for each tile type
-  // and apply materials. The model is 17.3m x 20m and already in pointy-top orientation.
-  const baseMeshes = new Map<TileType['type'], Mesh>();
+  // Create base mesh using GLB model (single mesh, no clones - only instancing)
+  // **Learning Point**: We load the hex_tile.glb model once, find a mesh with geometry,
+  // and use it directly for instancing. Materials are applied per instance.
+  // The model dimensions are defined in TILE_CONFIG and already in pointy-top orientation.
+  const baseMeshes = new Map<string, Mesh>();
   const materials = new Map<TileType['type'], StandardMaterial>();
-  
-  // Hex tile parameters - model dimensions
-  // Model is 17.3m width x 20m depth, already pointy-top oriented
-  // hexSize is defined in renderGrid function for coordinate calculations
   
   const tileTypes: TileType[] = [
     { type: 'grass' },
@@ -3211,7 +3273,9 @@ export const init = async (): Promise<void> => {
     { type: 'water' },
   ];
   
-  // Load GLB model once, then clone for each tile type
+  // Load GLB model once, find mesh with geometry, use only instancing (no clones)
+  // **Learning Point**: GLB models may have multiple meshes. We need to find a mesh with
+  // actual geometry (not a container node) to use for instancing. Materials are set per instance.
   try {
     if (addLogEntry !== null) {
       addLogEntry('Loading hex_tile.glb model...', 'info');
@@ -3224,51 +3288,97 @@ export const init = async (): Promise<void> => {
       throw new Error('No meshes found in GLB model');
     }
     
-    // Find the root mesh (usually the first mesh or the one without a parent)
-    let rootMesh: Mesh | null = null;
+    // Find a mesh with geometry (not a container node)
+    // A mesh with geometry will have geometry property or vertices data
+    let baseMesh: Mesh | null = null;
+    
+    // Helper to check if mesh has geometry
+    const meshHasGeometry = (mesh: Mesh): boolean => {
+      // Check if mesh has geometry property (BabylonJS meshes with geometry have this)
+      if (mesh.geometry) {
+        return true;
+      }
+      // Check if mesh has vertices data
+      const positions = mesh.getVerticesData('position');
+      if (positions && positions.length > 0) {
+        return true;
+      }
+      // Check child meshes recursively
+      const childMeshes = mesh.getChildMeshes();
+      for (const childMesh of childMeshes) {
+        if (childMesh instanceof Mesh && meshHasGeometry(childMesh)) {
+          return true;
+        }
+      }
+      return false;
+    };
+    
+    // Find first mesh with geometry
     for (const mesh of result.meshes) {
-      if (mesh instanceof Mesh && (!mesh.parent || mesh.parent === scene.rootNodes[0])) {
-        rootMesh = mesh;
+      if (mesh instanceof Mesh && meshHasGeometry(mesh)) {
+        baseMesh = mesh;
         break;
       }
     }
     
-    // Fallback to first mesh if no root found
-    if (!rootMesh && result.meshes.length > 0) {
-      const firstMesh = result.meshes[0];
-      if (firstMesh instanceof Mesh) {
-        rootMesh = firstMesh;
+    // If no mesh with geometry found, try to find one from children
+    if (!baseMesh) {
+      for (const mesh of result.meshes) {
+        if (mesh instanceof Mesh) {
+          const childMeshes = mesh.getChildMeshes();
+          for (const childMesh of childMeshes) {
+            if (childMesh instanceof Mesh && meshHasGeometry(childMesh)) {
+              baseMesh = childMesh;
+              break;
+            }
+          }
+          if (baseMesh) {
+            break;
+          }
+        }
       }
     }
     
-    if (!rootMesh) {
-      throw new Error('Could not find root mesh in GLB model');
+    if (!baseMesh) {
+      throw new Error('Could not find mesh with geometry in GLB model');
     }
     
-    // Hide the original loaded mesh
-    rootMesh.isVisible = false;
+    // Use model at its actual size (scale 1.0)
+    // The grid layout will be based on the model's actual dimensions from TILE_CONFIG
+    baseMesh.scaling = new Vector3(1.0, 1.0, 1.0);
     
-    // Create clones for each tile type
+    // Remove existing materials from the base mesh and all its children
+    // This ensures our color materials will be applied correctly per instance
+    const removeMaterialsRecursively = (mesh: Mesh): void => {
+      if (mesh.material) {
+        mesh.material.dispose();
+        mesh.material = null;
+      }
+      const childMeshes = mesh.getChildMeshes();
+      for (const childMesh of childMeshes) {
+        if (childMesh instanceof Mesh) {
+          removeMaterialsRecursively(childMesh);
+        }
+      }
+    };
+    removeMaterialsRecursively(baseMesh);
+    
+    // Hide the base mesh (we'll use instances only)
+    baseMesh.isVisible = false;
+    
+    // Create materials for each tile type (will be applied per instance)
     for (const tileType of tileTypes) {
-      const clonedMesh = rootMesh.clone(`base_${tileType.type}`);
-      if (!clonedMesh) {
-        throw new Error(`Failed to clone mesh for tile type: ${tileType.type}`);
-      }
-      
-      clonedMesh.isVisible = false;
-      
-      // Apply material
       const material = new StandardMaterial(`material_${tileType.type}`, scene);
       material.diffuseColor = getTileColor(tileType);
       material.specularColor = new Color3(0.1, 0.1, 0.1);
-      clonedMesh.material = material;
-      
-      baseMeshes.set(tileType.type, clonedMesh);
       materials.set(tileType.type, material);
     }
     
+    // Store the single base mesh (no clones - only instancing)
+    baseMeshes.set('base', baseMesh);
+    
     if (addLogEntry !== null) {
-      addLogEntry('Hex tile model loaded and cloned for all tile types', 'success');
+      addLogEntry(`Hex tile model loaded (hexSize: ${TILE_CONFIG.hexSize.toFixed(3)}m, using actual model dimensions ${TILE_CONFIG.modelWidth}m × ${TILE_CONFIG.modelDepth}m, using instancing only)`, 'success');
     }
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : 'Unknown error';
@@ -3281,8 +3391,8 @@ export const init = async (): Promise<void> => {
     throw error;
   }
   
-  // Store instances for cleanup
-  const instances: InstancedMesh[] = [];
+  // Store instances for cleanup (using thin instances, so no individual instance storage needed)
+  // Thin instances are managed by the base mesh itself
   
   /**
    * Get statistics for hexagon tiles only
@@ -3370,12 +3480,11 @@ export const init = async (): Promise<void> => {
    * 4. Positions instances based on grid coordinates
    */
   const renderGrid = (constraints?: LayoutConstraints): void => {
-    // Clear existing instances
-    for (const instance of instances) {
-      const disposeMethod = instance.dispose.bind(instance);
-      disposeMethod();
+    // Clear existing thin instances
+    const baseMeshForCleanup = baseMeshes.get('base');
+    if (baseMeshForCleanup) {
+      baseMeshForCleanup.thinInstanceCount = 0;
     }
-    instances.length = 0;
     
     if (!WASM_BABYLON_CHUNKS.wasmModule) {
       return;
@@ -3412,8 +3521,9 @@ export const init = async (): Promise<void> => {
     // Layer-based hexagon: layer 0 = 1 tile, layer n adds 6n tiles
     // Total tiles up to layer n: 3n(n+1) + 1
     // For layer 30: 3×30×31 + 1 = 2791 tiles
-    const hexSize = 1.5;
-    const hexHeight = 0.3;
+    // Use tile dimensions from TILE_CONFIG
+    const hexSize = TILE_CONFIG.hexSize;
+    const hexHeight = TILE_CONFIG.hexHeight;
     // Use currentMaxLayer from constraints, not hardcoded value
     const renderMaxLayer = currentMaxLayer;
     
@@ -3438,7 +3548,19 @@ export const init = async (): Promise<void> => {
       logFn(`Rendering: Center hex at (${renderCenterQ}, ${renderCenterR}) -> world (${centerWorldPos.x.toFixed(2)}, ${centerWorldPos.z.toFixed(2)})`, 'info');
     }
     
-    let renderedCount = 0;
+    // Get the single base mesh (no clones - only thin instancing)
+    const baseMesh = baseMeshes.get('base');
+    if (!baseMesh) {
+      if (addLogEntry !== null) {
+        addLogEntry('Base mesh not found for rendering', 'error');
+      }
+      return;
+    }
+    
+    // Prepare data for thin instances
+    // Collect all valid hex tiles with their positions and colors
+    const validHexes: Array<{ hex: { q: number; r: number }; tileType: TileType; worldPos: Vector3 }> = [];
+    
     for (const hex of renderHexGrid) {
       // Query WASM for tile type at this hex coordinate
       const getTileAt = WASM_BABYLON_CHUNKS.wasmModule.get_tile_at.bind(WASM_BABYLON_CHUNKS.wasmModule);
@@ -3449,24 +3571,77 @@ export const init = async (): Promise<void> => {
         continue;
       }
       
-      const baseMesh = baseMeshes.get(tileType.type);
-      if (!baseMesh) {
-        continue;
-      }
-      
-      // Convert axial to world position for rendering
+      // Convert axial to world position for rendering using hexSize from TILE_CONFIG
       const worldPos = HEX_UTILS.hexToWorld(hex.q, hex.r, hexSize);
       // Center the grid by subtracting center hex's position
-      // This ensures the center hex is at (0, 0) in world space
+      const centeredPos = new Vector3(
+        worldPos.x - centerWorldPos.x,
+        hexHeight / 2.0,
+        worldPos.z - centerWorldPos.z
+      );
       
-      const instance = baseMesh.createInstance(`tile_${hex.q}_${hex.r}`);
-      instance.position.x = worldPos.x - centerWorldPos.x;
-      instance.position.z = worldPos.z - centerWorldPos.z;
-      instance.position.y = hexHeight / 2;
-      
-      instances.push(instance);
-      renderedCount += 1;
+      validHexes.push({ hex, tileType, worldPos: centeredPos });
     }
+    
+    const numInstances = validHexes.length;
+    
+    if (numInstances === 0) {
+      if (addLogEntry !== null) {
+        addLogEntry('No valid tiles to render', 'warning');
+      }
+      return;
+    }
+    
+    // Create transformation matrices for thin instances
+    const matrices = new Float32Array(numInstances * 16); // 16 floats per matrix (4x4)
+    
+    // Create color buffer for thin instances (RGBA, 4 components per instance)
+    const bufferColors = new Float32Array(numInstances * 4);
+    
+    // Populate matrices and colors
+    // Get base mesh scaling to preserve model dimensions in thin instances
+    const baseMeshScaling = baseMesh.scaling.clone();
+    
+    for (let i = 0; i < numInstances; i++) {
+      const { tileType, worldPos } = validHexes[i];
+      
+      // Create transformation matrix for this instance
+      // Include scaling to preserve model dimensions (17.3m × 20m from TILE_CONFIG)
+      const translation = new Vector3(worldPos.x, worldPos.y, worldPos.z);
+      const scaling = baseMeshScaling.clone();
+      const rotation = Quaternion.Identity();
+      const matrix = Matrix.Compose(scaling, rotation, translation);
+      
+      // Copy matrix data to the matrices array using copyToArray method
+      matrix.copyToArray(matrices, i * 16);
+      
+      // Get color for this tile type and convert to RGBA
+      const color = getTileColor(tileType);
+      bufferColors[i * 4] = color.r;     // Red
+      bufferColors[i * 4 + 1] = color.g; // Green
+      bufferColors[i * 4 + 2] = color.b; // Blue
+      bufferColors[i * 4 + 3] = 1.0;     // Alpha
+    }
+    
+    // Set up thin instances with matrices using thinInstanceSetBuffer
+    // The "matrix" attribute is the standard name for transformation matrices
+    baseMesh.thinInstanceSetBuffer("matrix", matrices, 16);
+    
+    // Set up thin instances with colors using the BabylonJS pattern
+    // Use "color" attribute name for better compatibility with built-in shaders
+    baseMesh.thinInstanceSetBuffer("color", bufferColors, 4);
+    
+    // Set thin instance count after setting buffers (required for thin instances to render)
+    baseMesh.thinInstanceCount = numInstances;
+    
+    // Apply a base material to the mesh (thin instances will use per-instance colors)
+    // We'll use the first material as a base, but colors come from the buffer
+    const baseMaterial = materials.get('grass');
+    if (baseMaterial) {
+      baseMesh.material = baseMaterial;
+    }
+    
+    const renderedCount = numInstances;
     
     // Debug: Log actual rendered count
     if (addLogEntry !== null) {
@@ -3486,92 +3661,94 @@ export const init = async (): Promise<void> => {
         const statsJson = WASM_BABYLON_CHUNKS.wasmModule.get_stats();
         const parsed: unknown = JSON.parse(statsJson);
         
-        // Validate the structure without type casting
+        // Validate the structure using direct property access with type narrowing
         // Check that parsed is an object with all required numeric properties
-        if (typeof parsed === 'object' && parsed !== null) {
-          // Extract and validate properties using loop-based approach
-          const statKeys = ['grass', 'building', 'road', 'forest', 'water', 'total'] as const;
-          const stats: Record<string, number> = {};
-          let allValid = true;
-          
-          for (const key of statKeys) {
-            if (!(key in parsed)) {
-              allValid = false;
-              break;
-            }
-            const desc = Object.getOwnPropertyDescriptor(parsed, key);
-            if (!desc || !('value' in desc)) {
-              allValid = false;
-              break;
-            }
-            const val: unknown = desc.value;
-            if (typeof val === 'number') {
-              stats[key] = val;
-            } else {
-              allValid = false;
-              break;
-            }
-          }
-          
-          if (allValid) {
-            // WASM stats (from hash map)
-            const wasmStats = {
-              grass: stats.grass,
-              building: stats.building,
-              road: stats.road,
-              forest: stats.forest,
-              water: stats.water,
-              total: stats.total,
-            };
+        if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+          // Use direct property access with proper type checks
+          if (
+            'grass' in parsed &&
+            'building' in parsed &&
+            'road' in parsed &&
+            'forest' in parsed &&
+            'water' in parsed &&
+            'total' in parsed
+          ) {
+            const grassVal = parsed.grass;
+            const buildingVal = parsed.building;
+            const roadVal = parsed.road;
+            const forestVal = parsed.forest;
+            const waterVal = parsed.water;
+            const totalVal = parsed.total;
             
-            // Log WASM stats
-            logEntryFn(`Stats: WASM total: ${wasmStats.total} tiles`, 'info');
-            
-            // Get filtered hexagon stats (only counts hexagon tiles)
-            const hexagonStats = getHexagonStats(renderMaxLayer, renderCenterQ, renderCenterR);
-            
-            if (hexagonStats) {
-              logEntryFn(`Stats: Hexagon filtered total: ${hexagonStats.total} tiles (expected: ${expectedHexagonTiles})`, 'info');
+            if (
+              typeof grassVal === 'number' &&
+              typeof buildingVal === 'number' &&
+              typeof roadVal === 'number' &&
+              typeof forestVal === 'number' &&
+              typeof waterVal === 'number' &&
+              typeof totalVal === 'number'
+            ) {
+              // WASM stats (from hash map)
+              const wasmStats = {
+                grass: grassVal,
+                building: buildingVal,
+                road: roadVal,
+                forest: forestVal,
+                water: waterVal,
+                total: totalVal,
+              };
               
-              // Log filtered stats (hexagon tiles only)
-              const statsMessage = `Grid Stats (Hexagon Only): Grass: ${hexagonStats.grass}, Building: ${hexagonStats.building}, Road: ${hexagonStats.road}, Forest: ${hexagonStats.forest}, Water: ${hexagonStats.water}, Total: ${hexagonStats.total}`;
-              logEntryFn(statsMessage, 'info');
+              // Log WASM stats
+              logEntryFn(`Stats: WASM total: ${wasmStats.total} tiles`, 'info');
               
-              // Log user prompt for comparison with generated stats
-              if (lastUserPrompt !== null) {
-                logEntryFn(`User Prompt: "${lastUserPrompt}"`, 'info');
-                logEntryFn(`Prompt vs Stats Analysis:`, 'info');
+              // Get filtered hexagon stats (only counts hexagon tiles)
+              const hexagonStats = getHexagonStats(renderMaxLayer, renderCenterQ, renderCenterR);
+              
+              if (hexagonStats) {
+                logEntryFn(`Stats: Hexagon filtered total: ${hexagonStats.total} tiles (expected: ${expectedHexagonTiles})`, 'info');
                 
-                // Calculate percentages for better comparison
-                const total = hexagonStats.total;
-                const grassPercent = total > 0 ? ((hexagonStats.grass / total) * 100).toFixed(1) : '0.0';
-                const buildingPercent = total > 0 ? ((hexagonStats.building / total) * 100).toFixed(1) : '0.0';
-                const roadPercent = total > 0 ? ((hexagonStats.road / total) * 100).toFixed(1) : '0.0';
-                const forestPercent = total > 0 ? ((hexagonStats.forest / total) * 100).toFixed(1) : '0.0';
-                const waterPercent = total > 0 ? ((hexagonStats.water / total) * 100).toFixed(1) : '0.0';
+                // Log filtered stats (hexagon tiles only)
+                const statsMessage = `Grid Stats (Hexagon Only): Grass: ${hexagonStats.grass}, Building: ${hexagonStats.building}, Road: ${hexagonStats.road}, Forest: ${hexagonStats.forest}, Water: ${hexagonStats.water}, Total: ${hexagonStats.total}`;
+                logEntryFn(statsMessage, 'info');
                 
-                logEntryFn(`  - Grass: ${hexagonStats.grass} (${grassPercent}%)`, 'info');
-                logEntryFn(`  - Building: ${hexagonStats.building} (${buildingPercent}%)`, 'info');
-                logEntryFn(`  - Road: ${hexagonStats.road} (${roadPercent}%)`, 'info');
-                logEntryFn(`  - Forest: ${hexagonStats.forest} (${forestPercent}%)`, 'info');
-                logEntryFn(`  - Water: ${hexagonStats.water} (${waterPercent}%)`, 'info');
+                // Log user prompt for comparison with generated stats
+                if (lastUserPrompt !== null) {
+                  logEntryFn(`User Prompt: "${lastUserPrompt}"`, 'info');
+                  logEntryFn(`Prompt vs Stats Analysis:`, 'info');
+                  
+                  // Calculate percentages for better comparison
+                  const total = hexagonStats.total;
+                  const grassPercent = total > 0 ? ((hexagonStats.grass / total) * 100).toFixed(1) : '0.0';
+                  const buildingPercent = total > 0 ? ((hexagonStats.building / total) * 100).toFixed(1) : '0.0';
+                  const roadPercent = total > 0 ? ((hexagonStats.road / total) * 100).toFixed(1) : '0.0';
+                  const forestPercent = total > 0 ? ((hexagonStats.forest / total) * 100).toFixed(1) : '0.0';
+                  const waterPercent = total > 0 ? ((hexagonStats.water / total) * 100).toFixed(1) : '0.0';
+                  
+                  logEntryFn(`  - Grass: ${hexagonStats.grass} (${grassPercent}%)`, 'info');
+                  logEntryFn(`  - Building: ${hexagonStats.building} (${buildingPercent}%)`, 'info');
+                  logEntryFn(`  - Road: ${hexagonStats.road} (${roadPercent}%)`, 'info');
+                  logEntryFn(`  - Forest: ${hexagonStats.forest} (${forestPercent}%)`, 'info');
+                  logEntryFn(`  - Water: ${hexagonStats.water} (${waterPercent}%)`, 'info');
+                }
+                
+                // Log comparison
+                logEntryFn(`Stats Comparison: WASM: ${wasmStats.total}, Hexagon (filtered): ${hexagonStats.total}, Expected: ${expectedHexagonTiles}`, 'info');
+              } else {
+                logEntryFn('Failed to get hexagon stats: WASM module unavailable', 'warning');
               }
-              
-              // Log comparison
-              logEntryFn(`Stats Comparison: WASM: ${wasmStats.total}, Hexagon (filtered): ${hexagonStats.total}, Expected: ${expectedHexagonTiles}`, 'info');
             } else {
-              logEntryFn('Failed to get hexagon stats: WASM module unavailable', 'warning');
+              logEntryFn(`Invalid stats structure from WASM: missing or invalid numeric properties. Received: ${statsJson.substring(0, 200)}`, 'warning');
             }
           } else {
-            logEntryFn('Invalid stats structure from WASM', 'warning');
+            logEntryFn(`Invalid stats structure from WASM: missing required properties (grass, building, road, forest, water, total)`, 'warning');
           }
         } else {
-          logEntryFn('Invalid stats structure from WASM', 'warning');
+          logEntryFn(`Invalid stats structure from WASM: not an object. Type: ${typeof parsed}, Value: ${JSON.stringify(parsed).substring(0, 200)}`, 'warning');
         }
-        } catch (error) {
-          // If stats parsing fails, log error but don't break rendering
-          const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-          logEntryFn(`Failed to get grid stats: ${errorMsg}`, 'warning');
+      } catch (error) {
+        // If stats parsing fails, log error but don't break rendering
+        const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+        logEntryFn(`Failed to get grid stats: ${errorMsg}`, 'warning');
       }
     }
   };

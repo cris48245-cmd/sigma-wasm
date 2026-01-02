@@ -786,46 +786,69 @@ pub fn generate_voronoi_regions(
         return "[]".to_string();
     }
     
-    // Find bounds for seed generation
-    let min_q = hex_grid.iter().map(|h| h.q).min().unwrap_or(0);
-    let max_q = hex_grid.iter().map(|h| h.q).max().unwrap_or(0);
-    let min_r = hex_grid.iter().map(|h| h.r).min().unwrap_or(0);
-    let max_r = hex_grid.iter().map(|h| h.r).max().unwrap_or(0);
+    // Create a vector of valid hex coordinates for seed generation
+    // This ensures seeds are only placed on actual hex grid positions
+    let hex_vec: Vec<(i32, i32)> = hex_grid.iter().map(|h| (h.q, h.r)).collect();
+    let hex_count = hex_vec.len();
     
-    // Generate seed points
+    if hex_count == 0 {
+        return "[]".to_string();
+    }
+    
+    // Generate seed points by sampling from actual hex grid coordinates
     let mut seeds: Vec<VoronoiSeed> = Vec::new();
+    
+    // Helper to get a random hex coordinate from the grid
+    let get_random_hex = || {
+        if hex_count > 0 {
+            let index = (js_random() * hex_count as f64) as usize;
+            if index < hex_count {
+                Some(hex_vec[index])
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    };
     
     // Generate forest seeds
     for _ in 0..forest_seeds {
-        let q = (js_random() * (max_q - min_q + 1) as f64) as i32 + min_q;
-        let r = (js_random() * (max_r - min_r + 1) as f64) as i32 + min_r;
-        seeds.push(VoronoiSeed {
-            q,
-            r,
-            tile_type: TileType::Forest,
-        });
+        if let Some((q, r)) = get_random_hex() {
+            seeds.push(VoronoiSeed {
+                q,
+                r,
+                tile_type: TileType::Forest,
+            });
+        }
     }
     
     // Generate water seeds
     for _ in 0..water_seeds {
-        let q = (js_random() * (max_q - min_q + 1) as f64) as i32 + min_q;
-        let r = (js_random() * (max_r - min_r + 1) as f64) as i32 + min_r;
-        seeds.push(VoronoiSeed {
-            q,
-            r,
-            tile_type: TileType::Water,
-        });
+        if let Some((q, r)) = get_random_hex() {
+            seeds.push(VoronoiSeed {
+                q,
+                r,
+                tile_type: TileType::Water,
+            });
+        }
     }
     
     // Generate grass seeds
     for _ in 0..grass_seeds {
-        let q = (js_random() * (max_q - min_q + 1) as f64) as i32 + min_q;
-        let r = (js_random() * (max_r - min_r + 1) as f64) as i32 + min_r;
-        seeds.push(VoronoiSeed {
-            q,
-            r,
-            tile_type: TileType::Grass,
-        });
+        if let Some((q, r)) = get_random_hex() {
+            seeds.push(VoronoiSeed {
+                q,
+                r,
+                tile_type: TileType::Grass,
+            });
+        }
+    }
+    
+    // If no seeds were generated, return empty array
+    // This can happen if js_random fails or if seed counts are 0
+    if seeds.is_empty() {
+        return "[]".to_string();
     }
     
     // Assign each hex to nearest seed and build JSON
@@ -842,6 +865,7 @@ pub fn generate_voronoi_regions(
             }
         }
         
+        // nearest_seed should always be Some since seeds is not empty
         if let Some(seed) = nearest_seed {
             json_parts.push(format!(
                 r#"{{"q":{},"r":{},"tileType":{}}}"#,
