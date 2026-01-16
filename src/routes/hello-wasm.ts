@@ -71,6 +71,12 @@ const getInitWasm = async (): Promise<unknown> => {
     if ('set_message' in moduleUnknown) {
       moduleKeys.push('set_message');
     }
+    if ('get_fave_car' in moduleUnknown) {
+      moduleKeys.push('get_fave_car');
+    }
+    if ('set_fave_car' in moduleUnknown) {
+      moduleKeys.push('set_fave_car');
+    }
     
     // Get all keys for error messages
     const allKeys = Object.keys(moduleUnknown);
@@ -95,6 +101,12 @@ const getInitWasm = async (): Promise<unknown> => {
     if (!('set_message' in moduleUnknown) || typeof moduleUnknown.set_message !== 'function') {
       throw new Error(`Module missing 'set_message' export. Available: ${allKeys.join(', ')}`);
     }
+    if (!('get_fave_car' in moduleUnknown) || typeof moduleUnknown.get_fave_car !== 'function') {
+      throw new Error(`Module missing 'get_fave_car' export. Available: ${allKeys.join(', ')}`);
+    }
+    if (!('set_message' in moduleUnknown) || typeof moduleUnknown.set_message !== 'function') {
+      throw new Error(`Module missing 'set_message' export. Available: ${allKeys.join(', ')}`);
+    }
     
     // Extract and assign functions - we've validated they exist and are functions above
     // Access properties directly after validation
@@ -104,6 +116,8 @@ const getInitWasm = async (): Promise<unknown> => {
     const incrementCounterFunc = moduleUnknown.increment_counter;
     const getMessageFunc = moduleUnknown.get_message;
     const setMessageFunc = moduleUnknown.set_message;
+    const getMessageFunc = moduleUnknown.get_fave_car;
+    const setMessageFunc = moduleUnknown.set_fave_car;
     
     if (typeof defaultFunc !== 'function') {
       throw new Error('default export is not a function');
@@ -123,6 +137,12 @@ const getInitWasm = async (): Promise<unknown> => {
     if (typeof setMessageFunc !== 'function') {
       throw new Error('set_message export is not a function');
     }
+    if (typeof getMessageFunc !== 'function') {
+      throw new Error('get_fave_car export is not a function');
+    }
+    if (typeof setMessageFunc !== 'function') {
+      throw new Error('set_fave_car export is not a function');
+    }
     
     // TypeScript can't narrow Function to specific signatures after validation
     // Runtime validation ensures these are safe
@@ -139,6 +159,10 @@ const getInitWasm = async (): Promise<unknown> => {
       get_message: getMessageFunc as () => string,
       // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
       set_message: setMessageFunc as (message: string) => void,
+    };
+    get_fave_car: getMessageFunc as () => string,
+      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+      set_fave_car: setMessageFunc as (fave_car: string) => void,
     };
   }
   if (!wasmModuleExports) {
@@ -218,7 +242,13 @@ function validateHelloModule(exports: unknown): WasmModuleHello | null {
       missingExports.push('set_message (function)');
     }
   }
-  
+  if (typeof wasmModuleExports.get_fave_car !== 'function') {
+      missingExports.push('get_fave_car (function)');
+    }
+    if (typeof wasmModuleExports.set_fave_car !== 'function') {
+      missingExports.push('set_fave_car (function)');
+     }
+  }
   if (missingExports.length > 0) {
     throw new Error(`WASM module missing required exports: ${missingExports.join(', ')}. Available exports from init result: ${exportKeys.join(', ')}`);
   }
@@ -243,7 +273,10 @@ function validateHelloModule(exports: unknown): WasmModuleHello | null {
     set_message: wasmModuleExports.set_message,
   };
 }
-
+ get_fave_car: wasmModuleExports.get_fave_car,
+    set_fave_car: wasmModuleExports.set_fave_car,
+  };
+}
 /**
  * Initialize the hello-wasm route
  * 
@@ -330,6 +363,8 @@ export const init = async (): Promise<void> => {
     counterDisplay.textContent = WASM_HELLO.wasmModule.get_counter().toString();
     messageDisplay.textContent = WASM_HELLO.wasmModule.get_message();
   }
+    fave_carDisplay.textContent = WASM_HELLO.wasmModule.get_fave_car();
+  }
   
   // Set up event handlers
   // **Learning Point**: This demonstrates how to call WASM functions in response
@@ -348,6 +383,8 @@ export const init = async (): Promise<void> => {
         WASM_HELLO.wasmModule.set_message(newMessage);
         messageDisplay.textContent = WASM_HELLO.wasmModule.get_message();
         messageInput.value = '';
+         fave_carisplay.textContent = WASM_HELLO.wasmModule.get_fave_car();
+        fave_carInput.value = '';
       }
     }
   });
@@ -360,6 +397,8 @@ export const init = async (): Promise<void> => {
         WASM_HELLO.wasmModule.set_message(newMessage);
         messageDisplay.textContent = WASM_HELLO.wasmModule.get_message();
         messageInput.value = '';
+        fave_carDisplay.textContent = WASM_HELLO.wasmModule.get_fave_car();
+        fave_carInput.value = '';
       }
     }
   });
