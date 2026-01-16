@@ -48,6 +48,16 @@ impl HelloState {
     }
 }
 
+    /// Get the current message
+    fn get_fave_car(&self) -> String {
+        self.fave_car.clone()
+    }
+    
+    /// Set a new message
+    fn set_fave_car(&mut self, fave_car: String) {
+        self.fave_car = fave_car;
+    }
+}
 /// Global state using the LazyLock<Mutex<State>> pattern
 /// 
 /// **Learning Point**: This is the same pattern used in wasm-astar and other modules.
@@ -130,4 +140,31 @@ pub fn set_message(message: String) {
     let mut state = HELLO_STATE.lock().unwrap();
     state.set_message(message);
 }
+/// Get the current message
+/// 
+/// **Learning Point**: Strings in Rust need to be converted to JavaScript strings.
+/// `wasm-bindgen` handles this automatically when you return a `String` from a
+/// `#[wasm_bindgen]` function.
+/// 
+/// @returns The current message as a JavaScript string
+#[wasm_bindgen]
+pub fn get_fave_car() -> String {
+    let state = HELLO_STATE.lock().unwrap();
+    state.get_fave_car()
+}
+
+/// Set a new message
+/// 
+/// **Learning Point**: JavaScript strings are automatically converted to Rust `String`
+/// when passed as parameters to `#[wasm_bindgen]` functions.
+/// 
+/// **To extend**: You could add validation, length limits, or formatting here.
+/// 
+/// @param message - The new message to set
+#[wasm_bindgen]
+pub fn set_fave_car(fave_car: String) {
+    let mut state = HELLO_STATE.lock().unwrap();
+    state.set_fave_car(fave_car);
+}
+
 
