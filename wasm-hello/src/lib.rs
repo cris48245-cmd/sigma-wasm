@@ -40,11 +40,15 @@ impl HelloState {
     /// Get the current message
     fn get_message(&self) -> String {
         self.message.clone()
+    fn get_fave_car(&self) -> String {
+        self.fave_car.clone()
     }
     
     /// Set a new message
     fn set_message(&mut self, message: String) {
         self.message = message;
+    fn set_fave_car(&mut self, fave_car: String) {
+        self.fave_car = fave_car;
     }
 }
 
@@ -115,6 +119,9 @@ pub fn increment_counter() {
 pub fn get_message() -> String {
     let state = HELLO_STATE.lock().unwrap();
     state.get_message()
+pub fn get_fave_car() -> String {
+    let state = HELLO_STATE.lock().unwrap();
+    state.get_fave_car()
 }
 
 /// Set a new message
@@ -129,5 +136,8 @@ pub fn get_message() -> String {
 pub fn set_message(message: String) {
     let mut state = HELLO_STATE.lock().unwrap();
     state.set_message(message);
+pub fn set_fave_car(message: String) {
+    let mut state = HELLO_STATE.lock().unwrap();
+    state.set_fave_car(message);
 }
 
