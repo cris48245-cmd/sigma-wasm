@@ -29,6 +29,8 @@ let wasmModuleExports: {
   increment_counter: () => void;
   get_message: () => string;
   set_message: (message: string) => void;
+  get_fave_car: () => string;
+  set_fave_car: (fave_car: string) => void;
 } | null = null;
 
 /**
@@ -104,8 +106,8 @@ const getInitWasm = async (): Promise<unknown> => {
     if (!('get_fave_car' in moduleUnknown) || typeof moduleUnknown.get_fave_car !== 'function') {
       throw new Error(`Module missing 'get_fave_car' export. Available: ${allKeys.join(', ')}`);
     }
-    if (!('set_message' in moduleUnknown) || typeof moduleUnknown.set_message !== 'function') {
-      throw new Error(`Module missing 'set_message' export. Available: ${allKeys.join(', ')}`);
+    if (!('set_fave_car' in moduleUnknown) || typeof moduleUnknown.set_fave_car !== 'function') {
+      throw new Error(`Module missing 'set_fave_car' export. Available: ${allKeys.join(', ')}`);
     }
     
     // Extract and assign functions - we've validated they exist and are functions above
@@ -116,8 +118,8 @@ const getInitWasm = async (): Promise<unknown> => {
     const incrementCounterFunc = moduleUnknown.increment_counter;
     const getMessageFunc = moduleUnknown.get_message;
     const setMessageFunc = moduleUnknown.set_message;
-    const getMessageFunc = moduleUnknown.get_fave_car;
-    const setMessageFunc = moduleUnknown.set_fave_car;
+    const getFave_carFunc = moduleUnknown.get_fave_car;
+    const setFave_carFunc = moduleUnknown.set_fave_car;
     
     if (typeof defaultFunc !== 'function') {
       throw new Error('default export is not a function');
@@ -159,10 +161,9 @@ const getInitWasm = async (): Promise<unknown> => {
       get_message: getMessageFunc as () => string,
       // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
       set_message: setMessageFunc as (message: string) => void,
-    };
-    get_fave_car: getMessageFunc as () => string,
+      get_fave_car: getFave_carFunc as () => string,
       // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
-      set_fave_car: setMessageFunc as (fave_car: string) => void,
+      set_fave_car: setFave_carFunc as (fave_car: string) => void,
     };
   }
   if (!wasmModuleExports) {
@@ -271,12 +272,9 @@ function validateHelloModule(exports: unknown): WasmModuleHello | null {
     increment_counter: wasmModuleExports.increment_counter,
     get_message: wasmModuleExports.get_message,
     set_message: wasmModuleExports.set_message,
-  };
-}
- get_fave_car: wasmModuleExports.get_fave_car,
+    get_fave_car: wasmModuleExports.get_fave_car,
     set_fave_car: wasmModuleExports.set_fave_car,
   };
-}
 /**
  * Initialize the hello-wasm route
  * 
@@ -362,7 +360,6 @@ export const init = async (): Promise<void> => {
   if (WASM_HELLO.wasmModule) {
     counterDisplay.textContent = WASM_HELLO.wasmModule.get_counter().toString();
     messageDisplay.textContent = WASM_HELLO.wasmModule.get_message();
-  }
     fave_carDisplay.textContent = WASM_HELLO.wasmModule.get_fave_car();
   }
   
@@ -383,7 +380,7 @@ export const init = async (): Promise<void> => {
         WASM_HELLO.wasmModule.set_message(newMessage);
         messageDisplay.textContent = WASM_HELLO.wasmModule.get_message();
         messageInput.value = '';
-         fave_carisplay.textContent = WASM_HELLO.wasmModule.get_fave_car();
+        fave_carisplay.textContent = WASM_HELLO.wasmModule.get_fave_car();
         fave_carInput.value = '';
       }
     }
