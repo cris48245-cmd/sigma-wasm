@@ -29,6 +29,20 @@ let wasmModuleExports: {
   increment_counter: () => void;
   get_message: () => string;
   set_message: (message: string) => void;
+} | null = null;
+/**
+ * Lazy WASM import - only load when init() is called
+ * 
+ * **Learning Point**: We use lazy imports to reduce initial bundle size.
+ * The WASM module is only loaded when the user navigates to this route.
+ * 
+ * **To extend**: Add new function signatures here as you add them to the Rust module.
+ */
+let wasmModuleExports: {
+  default: () => unknown;
+  wasm_init: (initialCounter: number) => void;
+  get_counter: () => number;
+  increment_counter: () => void;
   get_fave_car: () => string;
   set_fave_car: (fave_car: string) => void;
 } | null = null;
@@ -73,13 +87,27 @@ const getInitWasm = async (): Promise<unknown> => {
     if ('set_message' in moduleUnknown) {
       moduleKeys.push('set_message');
     }
+    // Use 'in' operator checks which TypeScript can narrow
+    const moduleKeys: string[] = [];
+    if ('default' in moduleUnknown) {
+      moduleKeys.push('default');
+    }
+    if ('wasm_init' in moduleUnknown) {
+      moduleKeys.push('wasm_init');
+    }
+    if ('get_counter' in moduleUnknown) {
+      moduleKeys.push('get_counter');
+    }
+    if ('increment_counter' in moduleUnknown) {
+      moduleKeys.push('increment_counter');
+    }
+    }
     if ('get_fave_car' in moduleUnknown) {
       moduleKeys.push('get_fave_car');
     }
     if ('set_fave_car' in moduleUnknown) {
       moduleKeys.push('set_fave_car');
     }
-    
     // Get all keys for error messages
     const allKeys = Object.keys(moduleUnknown);
     
@@ -164,6 +192,23 @@ const getInitWasm = async (): Promise<unknown> => {
       get_fave_car: getFave_carFunc as () => string,
       // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
       set_fave_car: setFave_carFunc as (fave_car: string) => void,
+    };
+  }
+  // TypeScript can't narrow Function to specific signatures after validation
+    // Runtime validation ensures these are safe
+    wasmModuleExports = {
+      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+      default: defaultFunc as () => Promise<unknown>,
+      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+      wasm_init: wasmInitFunc as (initialCounter: number) => void,
+      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+      get_counter: getCounterFunc as () => number,
+      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+      increment_counter: incrementCounterFunc as () => void,
+      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+      get_fave_car: getFave_CarFunc as () => string,
+      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+      set_fave_car: setMessageFunc as (fave_car: string) => void,
     };
   }
   if (!wasmModuleExports) {
