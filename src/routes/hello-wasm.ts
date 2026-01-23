@@ -348,8 +348,19 @@ function validateHelloModule(exports: unknown): WasmModuleHello | null {
     increment_counter: wasmModuleExports.increment_counter,
     get_message: wasmModuleExports.get_message,
     set_message: wasmModuleExports.set_message,
+  };
+  // Construct module object from exports using type narrowing
+  if (!wasmModuleExports) {
+    return null;
+  }
+  
+  return {
+    memory,
+    wasm_init: wasmModuleExports.wasm_init,
+    get_counter: wasmModuleExports.get_counter,
+    increment_counter: wasmModuleExports.increment_counter,
     get_fave_car: wasmModuleExports.get_fave_car,
-    set_fave_car: wasmModuleExports.set_fave_car,
+    set_fave_car: wasmModuleExports?.set_fave_car,
   };
 /**
  * Initialize the hello-wasm route
