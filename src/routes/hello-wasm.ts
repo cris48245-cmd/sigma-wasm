@@ -131,6 +131,20 @@ const getInitWasm = async (): Promise<unknown> => {
     if (!('set_message' in moduleUnknown) || typeof moduleUnknown.set_message !== 'function') {
       throw new Error(`Module missing 'set_message' export. Available: ${allKeys.join(', ')}`);
     }
+    // Check for required exports - these should be on the module object from wasm-bindgen
+    // Use property access with 'in' checks that TypeScript can narrow
+    if (!('default' in moduleUnknown) || typeof moduleUnknown.default !== 'function') {
+      throw new Error(`Module missing 'default' export. Available: ${allKeys.join(', ')}`);
+    }
+    if (!('wasm_init' in moduleUnknown) || typeof moduleUnknown.wasm_init !== 'function') {
+      throw new Error(`Module missing 'wasm_init' export. Available: ${allKeys.join(', ')}`);
+    }
+    if (!('get_counter' in moduleUnknown) || typeof moduleUnknown.get_counter !== 'function') {
+      throw new Error(`Module missing 'get_counter' export. Available: ${allKeys.join(', ')}`);
+    }
+    if (!('increment_counter' in moduleUnknown) || typeof moduleUnknown.increment_counter !== 'function') {
+      throw new Error(`Module missing 'increment_counter' export. Available: ${allKeys.join(', ')}`);
+    }
     if (!('get_fave_car' in moduleUnknown) || typeof moduleUnknown.get_fave_car !== 'function') {
       throw new Error(`Module missing 'get_fave_car' export. Available: ${allKeys.join(', ')}`);
     }
@@ -146,9 +160,6 @@ const getInitWasm = async (): Promise<unknown> => {
     const incrementCounterFunc = moduleUnknown.increment_counter;
     const getMessageFunc = moduleUnknown.get_message;
     const setMessageFunc = moduleUnknown.set_message;
-    const getFave_carFunc = moduleUnknown.get_fave_car;
-    const setFave_carFunc = moduleUnknown.set_fave_car;
-    
     if (typeof defaultFunc !== 'function') {
       throw new Error('default export is not a function');
     }
@@ -167,10 +178,33 @@ const getInitWasm = async (): Promise<unknown> => {
     if (typeof setMessageFunc !== 'function') {
       throw new Error('set_message export is not a function');
     }
-    if (typeof getMessageFunc !== 'function') {
+
+    }
+    // Extract and assign functions - we've validated they exist and are functions above
+    // Access properties directly after validation
+    const defaultFunc = moduleUnknown.default;
+    const wasmInitFunc = moduleUnknown.wasm_init;
+    const getCounterFunc = moduleUnknown.get_counter;
+    const incrementCounterFunc = moduleUnknown.increment_counter;
+    const getFave_carFunc = moduleUnknown.get_fave_car;
+    const setFave_carFunc = moduleUnknown.set_fave_car;
+
+    if (typeof defaultFunc !== 'function') {
+      throw new Error('default export is not a function');
+    }
+    if (typeof wasmInitFunc !== 'function') {
+      throw new Error('wasm_init export is not a function');
+    }
+    if (typeof getCounterFunc !== 'function') {
+      throw new Error('get_counter export is not a function');
+    }
+    if (typeof incrementCounterFunc !== 'function') {
+      throw new Error('increment_counter export is not a function');
+    }
+    if (typeof getFave_carFunc !== 'function') {
       throw new Error('get_fave_car export is not a function');
     }
-    if (typeof setMessageFunc !== 'function') {
+    if (typeof setFave_carFunc !== 'function') {
       throw new Error('set_fave_car export is not a function');
     }
     
@@ -186,9 +220,6 @@ const getInitWasm = async (): Promise<unknown> => {
       // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
       increment_counter: incrementCounterFunc as () => void,
       // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
-      get_message: getMessageFunc as () => string,
-      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
-      set_message: setMessageFunc as (message: string) => void,
       get_fave_car: getFave_carFunc as () => string,
       // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
       set_fave_car: setFave_carFunc as (fave_car: string) => void,
