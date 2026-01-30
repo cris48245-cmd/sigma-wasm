@@ -118,8 +118,8 @@ const getInitWasm = async (): Promise<unknown> => {
     const incrementCounterFunc = moduleUnknown.increment_counter;
     const getMessageFunc = moduleUnknown.get_message;
     const setMessageFunc = moduleUnknown.set_message;
-    const getFavecarFunc = moduleUnknown.get_fave_car;
-    const setFavecarFunc = moduleUnknown.set_fave_car;
+    const getFaveCarFunc = moduleUnknown.get_fave_car;
+    const setFaveCarFunc = moduleUnknown.set_fave_car;
     
     if (typeof defaultFunc !== 'function') {
       throw new Error('default export is not a function');
@@ -139,10 +139,10 @@ const getInitWasm = async (): Promise<unknown> => {
     if (typeof setMessageFunc !== 'function') {
       throw new Error('set_message export is not a function');
     }
-    if (typeof getFavecarFunc !== 'function') {
+    if (typeof getFaveCarFunc !== 'function') {
       throw new Error('get_fave_car export is not a function');
     }
-    if (typeof setFavecarFunc !== 'function') {
+    if (typeof setFaveCarFunc !== 'function') {
       throw new Error('set_fave_car export is not a function');
     }
 
@@ -160,11 +160,11 @@ const getInitWasm = async (): Promise<unknown> => {
       // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
       get_message: get_messageFunc as () => string,
       // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
-      set_message: set_messageFunc as (fave_car: string) => void,
+      set_message: set_messageFunc as (message: string) => void,
       // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
       get_fave_car: getFave_carFunc as () => string,
       // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
-      set_fave_car: setFave_carFunc as (fave_car: string) => void,
+      set_fave_car: setFave_carFunc as (car: string) => void,
     }
   }
   if (!wasmModuleExports) {
