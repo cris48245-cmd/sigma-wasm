@@ -158,9 +158,9 @@ const getInitWasm = async (): Promise<unknown> => {
       // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
       increment_counter: incrementCounterFunc as () => void,
       // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
-      get_message: get_messageFunc as () => string,
+      get_message: getMessageFunc as () => string,
       // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
-      set_message: set_messageFunc as (message: string) => void,
+      set_message: setMessageFunc as (message: string) => void,
       // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
       get_fave_car: getFaveCarFunc as () => string,
       // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
