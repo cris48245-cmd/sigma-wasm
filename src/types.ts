@@ -195,14 +195,6 @@ export interface WasmModuleHello {
   increment_counter(): void;
   get_message(): string;
   set_message(message: string): void;
-}
-// Hello WASM template module types
-// This is a simplified template for students to learn from
-export interface WasmModuleHello {
-  memory: WebAssembly.Memory;
-  wasm_init(initialCounter: number): void;
-  get_counter(): number;
-  increment_counter(): void;
   get_fave_car(): string;
   set_fave_car(fave_car: string): void;
 }
