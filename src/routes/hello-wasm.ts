@@ -74,7 +74,7 @@ const getInitWasm = async (): Promise<unknown> => {
       moduleKeys.push('set_message');
     }
     if ('get_fave_car' in moduleUnknown) {
-      moduleKeys.push('get_fave-car');
+      moduleKeys.push('get_fave_car');
     }
     if ('set_fave_car' in moduleUnknown) {
       moduleKeys.push('set_fave_car');
