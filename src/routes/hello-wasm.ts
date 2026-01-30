@@ -29,20 +29,6 @@ let wasmModuleExports: {
   increment_counter: () => void;
   get_message: () => string;
   set_message: (message: string) => void;
-} | null = null;
-/**
- * Lazy WASM import - only load when init() is called
- * 
- * **Learning Point**: We use lazy imports to reduce initial bundle size.
- * The WASM module is only loaded when the user navigates to this route.
- * 
- * **To extend**: Add new function signatures here as you add them to the Rust module.
- */
-let wasmModuleExports: {
-  default: () => unknown;
-  wasm_init: (initialCounter: number) => void;
-  get_counter: () => number;
-  increment_counter: () => void;
   get_fave_car: () => string;
   set_fave_car: (fave_car: string) => void;
 } | null = null;
@@ -87,27 +73,13 @@ const getInitWasm = async (): Promise<unknown> => {
     if ('set_message' in moduleUnknown) {
       moduleKeys.push('set_message');
     }
-    // Use 'in' operator checks which TypeScript can narrow
-    const moduleKeys: string[] = [];
-    if ('default' in moduleUnknown) {
-      moduleKeys.push('default');
-    }
-    if ('wasm_init' in moduleUnknown) {
-      moduleKeys.push('wasm_init');
-    }
-    if ('get_counter' in moduleUnknown) {
-      moduleKeys.push('get_counter');
-    }
-    if ('increment_counter' in moduleUnknown) {
-      moduleKeys.push('increment_counter');
-    }
-    }
     if ('get_fave_car' in moduleUnknown) {
-      moduleKeys.push('get_fave_car');
+      moduleKeys.push('get_fave-car');
     }
-    if ('set_fave_car' in moduleUnknown) {
+    if ('set_fvae_car' in moduleUnknown) {
       moduleKeys.push('set_fave_car');
     }
+    
     // Get all keys for error messages
     const allKeys = Object.keys(moduleUnknown);
     
@@ -131,27 +103,13 @@ const getInitWasm = async (): Promise<unknown> => {
     if (!('set_message' in moduleUnknown) || typeof moduleUnknown.set_message !== 'function') {
       throw new Error(`Module missing 'set_message' export. Available: ${allKeys.join(', ')}`);
     }
-    // Check for required exports - these should be on the module object from wasm-bindgen
-    // Use property access with 'in' checks that TypeScript can narrow
-    if (!('default' in moduleUnknown) || typeof moduleUnknown.default !== 'function') {
-      throw new Error(`Module missing 'default' export. Available: ${allKeys.join(', ')}`);
-    }
-    if (!('wasm_init' in moduleUnknown) || typeof moduleUnknown.wasm_init !== 'function') {
-      throw new Error(`Module missing 'wasm_init' export. Available: ${allKeys.join(', ')}`);
-    }
-    if (!('get_counter' in moduleUnknown) || typeof moduleUnknown.get_counter !== 'function') {
-      throw new Error(`Module missing 'get_counter' export. Available: ${allKeys.join(', ')}`);
-    }
-    if (!('increment_counter' in moduleUnknown) || typeof moduleUnknown.increment_counter !== 'function') {
-      throw new Error(`Module missing 'increment_counter' export. Available: ${allKeys.join(', ')}`);
-    }
     if (!('get_fave_car' in moduleUnknown) || typeof moduleUnknown.get_fave_car !== 'function') {
       throw new Error(`Module missing 'get_fave_car' export. Available: ${allKeys.join(', ')}`);
     }
     if (!('set_fave_car' in moduleUnknown) || typeof moduleUnknown.set_fave_car !== 'function') {
       throw new Error(`Module missing 'set_fave_car' export. Available: ${allKeys.join(', ')}`);
     }
-    
+     
     // Extract and assign functions - we've validated they exist and are functions above
     // Access properties directly after validation
     const defaultFunc = moduleUnknown.default;
@@ -160,6 +118,9 @@ const getInitWasm = async (): Promise<unknown> => {
     const incrementCounterFunc = moduleUnknown.increment_counter;
     const getMessageFunc = moduleUnknown.get_message;
     const setMessageFunc = moduleUnknown.set_message;
+    const getFavecarFunc = moduleUnknown.get_fave_car;
+    const setFavecarFunc = moduleUnknown.set_fave_car;
+    
     if (typeof defaultFunc !== 'function') {
       throw new Error('default export is not a function');
     }
@@ -178,36 +139,13 @@ const getInitWasm = async (): Promise<unknown> => {
     if (typeof setMessageFunc !== 'function') {
       throw new Error('set_message export is not a function');
     }
-
-    }
-    // Extract and assign functions - we've validated they exist and are functions above
-    // Access properties directly after validation
-    const defaultFunc = moduleUnknown.default;
-    const wasmInitFunc = moduleUnknown.wasm_init;
-    const getCounterFunc = moduleUnknown.get_counter;
-    const incrementCounterFunc = moduleUnknown.increment_counter;
-    const getFave_carFunc = moduleUnknown.get_fave_car;
-    const setFave_carFunc = moduleUnknown.set_fave_car;
-
-    if (typeof defaultFunc !== 'function') {
-      throw new Error('default export is not a function');
-    }
-    if (typeof wasmInitFunc !== 'function') {
-      throw new Error('wasm_init export is not a function');
-    }
-    if (typeof getCounterFunc !== 'function') {
-      throw new Error('get_counter export is not a function');
-    }
-    if (typeof incrementCounterFunc !== 'function') {
-      throw new Error('increment_counter export is not a function');
-    }
-    if (typeof getFave_carFunc !== 'function') {
+    if (typeof getFavecarFunc !== 'function') {
       throw new Error('get_fave_car export is not a function');
     }
-    if (typeof setFave_carFunc !== 'function') {
+    if (typeof setFavecarFunc !== 'function') {
       throw new Error('set_fave_car export is not a function');
     }
-    
+
     // TypeScript can't narrow Function to specific signatures after validation
     // Runtime validation ensures these are safe
     wasmModuleExports = {
@@ -220,27 +158,14 @@ const getInitWasm = async (): Promise<unknown> => {
       // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
       increment_counter: incrementCounterFunc as () => void,
       // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+      get_message: get_messageFunc as () => string,
+      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+      set_message: set_messageFunc as (fave_car: string) => void,
+      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
       get_fave_car: getFave_carFunc as () => string,
       // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
       set_fave_car: setFave_carFunc as (fave_car: string) => void,
-    };
-  }
-  // TypeScript can't narrow Function to specific signatures after validation
-    // Runtime validation ensures these are safe
-    wasmModuleExports = {
-      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
-      default: defaultFunc as () => Promise<unknown>,
-      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
-      wasm_init: wasmInitFunc as (initialCounter: number) => void,
-      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
-      get_counter: getCounterFunc as () => number,
-      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
-      increment_counter: incrementCounterFunc as () => void,
-      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
-      get_fave_car: getFave_CarFunc as () => string,
-      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
-      set_fave_car: setMessageFunc as (fave_car: string) => void,
-    };
+    }
   }
   if (!wasmModuleExports) {
     throw new Error('Failed to load WASM module exports');
@@ -317,15 +242,15 @@ function validateHelloModule(exports: unknown): WasmModuleHello | null {
     }
     if (typeof wasmModuleExports.set_message !== 'function') {
       missingExports.push('set_message (function)');
-    }
-  }
-  if (typeof wasmModuleExports.get_fave_car !== 'function') {
+
+    if (typeof wasmModuleExports.get_fave_car !== 'function') {
       missingExports.push('get_fave_car (function)');
     }
     if (typeof wasmModuleExports.set_fave_car !== 'function') {
       missingExports.push('set_fave_car (function)');
      }
   }
+
   if (missingExports.length > 0) {
     throw new Error(`WASM module missing required exports: ${missingExports.join(', ')}. Available exports from init result: ${exportKeys.join(', ')}`);
   }
@@ -348,20 +273,11 @@ function validateHelloModule(exports: unknown): WasmModuleHello | null {
     increment_counter: wasmModuleExports.increment_counter,
     get_message: wasmModuleExports.get_message,
     set_message: wasmModuleExports.set_message,
-  };
-  // Construct module object from exports using type narrowing
-  if (!wasmModuleExports) {
-    return null;
-  }
-  
-  return {
-    memory,
-    wasm_init: wasmModuleExports.wasm_init,
-    get_counter: wasmModuleExports.get_counter,
-    increment_counter: wasmModuleExports.increment_counter,
     get_fave_car: wasmModuleExports.get_fave_car,
-    set_fave_car: wasmModuleExports?.set_fave_car,
+    set_fave_car: wasmModuleExports.set_fave_car,
   };
+}
+  
 /**
  * Initialize the hello-wasm route
  * 
@@ -426,11 +342,17 @@ export const init = async (): Promise<void> => {
   // Get UI elements
   const counterDisplay = document.getElementById('counter-display');
   const messageDisplay = document.getElementById('message-display');
+  const faveCarDisplay = document.getElementById('fave-car-display');
   const incrementBtn = document.getElementById('increment-btn');
   const messageInputEl = document.getElementById('message-input');
   const setMessageBtn = document.getElementById('set-message-btn');
+  const faveCarInputEl = document.getElementById('fave-car-input');
+  const setFaveCarBtn = document.getElementById('set-fave-car-btn');
   
-  if (!counterDisplay || !messageDisplay || !incrementBtn || !messageInputEl || !setMessageBtn) {
+  if (!counterDisplay || !messageDisplay || 
+    !incrementBtn || !messageInputEl || !setMessageBtn || 
+    !faveCarDisplay || !faveCarInputEl || !setFaveCarBtn 
+  ) {
     throw new Error('Required UI elements not found');
   }
   
@@ -440,6 +362,13 @@ export const init = async (): Promise<void> => {
   }
   
   const messageInput = messageInputEl;
+
+  // Type narrowing for input element
+  if (!(faveCarInputEl instanceof HTMLInputElement)) {
+    throw new Error('fave-car-input element is not an HTMLInputElement');
+  }
+  
+  const faveCarInput = faveCarInputEl;
   
   // Update display with initial values
   // **Learning Point**: We call WASM functions directly from TypeScript.
@@ -447,7 +376,7 @@ export const init = async (): Promise<void> => {
   if (WASM_HELLO.wasmModule) {
     counterDisplay.textContent = WASM_HELLO.wasmModule.get_counter().toString();
     messageDisplay.textContent = WASM_HELLO.wasmModule.get_message();
-    fave_carDisplay.textContent = WASM_HELLO.wasmModule.get_fave_car();
+    faveCarDisplay.textContent = WASM_HELLO.wasmModule.get_fave_car();  
   }
   
   // Set up event handlers
@@ -467,8 +396,6 @@ export const init = async (): Promise<void> => {
         WASM_HELLO.wasmModule.set_message(newMessage);
         messageDisplay.textContent = WASM_HELLO.wasmModule.get_message();
         messageInput.value = '';
-        fave_carisplay.textContent = WASM_HELLO.wasmModule.get_fave_car();
-        fave_carInput.value = '';
       }
     }
   });
@@ -481,10 +408,32 @@ export const init = async (): Promise<void> => {
         WASM_HELLO.wasmModule.set_message(newMessage);
         messageDisplay.textContent = WASM_HELLO.wasmModule.get_message();
         messageInput.value = '';
-        fave_carDisplay.textContent = WASM_HELLO.wasmModule.get_fave_car();
-        fave_carInput.value = '';
+      }
+    }
+  });
+
+ setFaveCarBtn.addEventListener('click', () => {
+    if (WASM_HELLO.wasmModule && faveCarInput) {
+      const newCar = faveCarInput.value.trim();
+      if (newCar) {
+        WASM_HELLO.wasmModule.set_fave_car(newCar);
+        faveCarDisplay.textContent = WASM_HELLO.wasmModule.get_fave_car();
+        faveCarInput.value = '';
+      }
+    }
+  });
+  
+  // Allow Enter key to set message
+  faveCarInput.addEventListener('keydown', (e: KeyboardEvent) => {
+    if (e.key === 'Enter' && WASM_HELLO.wasmModule) {
+      const newCar = faveCarInput.value.trim();
+      if (newCar) {
+        WASM_HELLO.wasmModule.set_fave_car(newCar);
+        faveCarDisplay.textContent = WASM_HELLO.wasmModule.get_fave_car();
+        faveCarInput.value = '';
       }
     }
   });
 };
+
 
