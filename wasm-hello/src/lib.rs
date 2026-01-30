@@ -56,7 +56,7 @@ impl HelloState {
     }
 
     /// Set a new car
-    fn set_fave_car(&mut self, fave_car: String) {
+    fn set_fave_car(&mut self, car: String) {
         self.car = car;
     }
 }
