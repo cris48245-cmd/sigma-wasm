@@ -16,6 +16,8 @@ struct HelloState {
     counter: i32,
     /// Message string that can be set and retrieved
     message: String,
+    /// Car string that can be set and retrieved
+    car: String,
 }
 
 impl HelloState {
@@ -23,7 +25,8 @@ impl HelloState {
     fn new() -> Self {
         HelloState {
             counter: 0,
-            message: String::from("Hello from WASM!"),
+            message: String::from("Rust Wasm is so Sigma!"),
+            message: String::from("Ferrari 250 Testa Rossa!"),
         }
     }
     
@@ -40,15 +43,21 @@ impl HelloState {
     /// Get the current message
     fn get_message(&self) -> String {
         self.message.clone()
-    fn get_fave_car(&self) -> String {
-        self.fave_car.clone()
     }
     
     /// Set a new message
     fn set_message(&mut self, message: String) {
         self.message = message;
+    
+
+    /// Get the current car
+    fn get_fave_car(&self) -> String {
+        self.car.clone()
+    }
+
+    /// Set a new car
     fn set_fave_car(&mut self, fave_car: String) {
-        self.fave_car = fave_car;
+        self.car = car;
     }
 }
 
@@ -119,9 +128,6 @@ pub fn increment_counter() {
 pub fn get_message() -> String {
     let state = HELLO_STATE.lock().unwrap();
     state.get_message()
-pub fn get_fave_car() -> String {
-    let state = HELLO_STATE.lock().unwrap();
-    state.get_fave_car()
 }
 
 /// Set a new message
@@ -136,8 +142,32 @@ pub fn get_fave_car() -> String {
 pub fn set_message(message: String) {
     let mut state = HELLO_STATE.lock().unwrap();
     state.set_message(message);
-pub fn set_fave_car(message: String) {
+}
+
+/// Get the current message
+/// 
+/// **Learning Point**: Strings in Rust need to be converted to JavaScript strings.
+/// `wasm-bindgen` handles this automatically when you return a `String` from a
+/// `#[wasm_bindgen]` function.
+/// 
+/// @returns The current message as a JavaScript string
+#[wasm_bindgen]
+pub fn get_fave_car() -> String {
+    let state = HELLO_STATE.lock().unwrap();
+    state.get_fave_car()
+}
+
+/// Set a new message
+/// 
+/// **Learning Point**: JavaScript strings are automatically converted to Rust `String`
+/// when passed as parameters to `#[wasm_bindgen]` functions.
+/// 
+/// **To extend**: You could add validation, length limits, or formatting here.
+/// 
+/// @param message - The new message to set
+#[wasm_bindgen]
+pub fn set_fave_car(car: String) {
     let mut state = HELLO_STATE.lock().unwrap();
-    state.set_fave_car(message);
+    state.set_fave_car(car);
 }
 
