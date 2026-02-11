@@ -20,6 +20,8 @@ struct HelloState {
     car: String,
     /// Team string that can be set and retrieved
     team: String,
+    /// Decimal numeric value (single-precision float)
+    decimal: f32,
 }
 
 impl HelloState {
@@ -30,6 +32,7 @@ impl HelloState {
             message: String::from("Rust WASM is so Sigma!"),
             car: String::from("Hubba Bubba"),
             team: String::from("Detroit Lions"),
+            decimal: 0.0,
         }
     }
     
@@ -71,6 +74,16 @@ impl HelloState {
     /// Set a new team
     fn set_fave_team(&mut self, team: String) {
         self.team = team;
+    }
+
+    /// Get the current decimal value
+    fn get_decimal(&self) -> f32 {
+        self.decimal
+    }
+
+    /// Set a new decimal value
+    fn set_decimal(&mut self, value: f32) {
+        self.decimal = value;
     }
 }
 
@@ -209,5 +222,31 @@ pub fn get_fave_team() -> String {
 pub fn set_fave_team(team: String) {
     let mut state = HELLO_STATE.lock().unwrap();
     state.set_fave_team(team);
+}
+
+/// Get the current decimal value
+/// 
+/// **Learning Point**: Numeric values in Rust are automatically converted to JavaScript numbers.
+/// `wasm-bindgen` handles this conversion when you return an `f32` from a `#[wasm_bindgen]` function.
+/// 
+/// @returns The current decimal value as a JavaScript number
+#[wasm_bindgen]
+pub fn get_decimal() -> f32 {
+    let state = HELLO_STATE.lock().unwrap();
+    state.get_decimal()
+}
+
+/// Set a new decimal value
+/// 
+/// **Learning Point**: JavaScript numbers are automatically converted to Rust `f32` (or other numeric types)
+/// when passed as parameters to `#[wasm_bindgen]` functions.
+/// 
+/// **To extend**: You could add range validation (e.g., clamp to -10..10) here.
+/// 
+/// @param value - The new decimal value to set
+#[wasm_bindgen]
+pub fn set_decimal(value: f32) {
+    let mut state = HELLO_STATE.lock().unwrap();
+    state.set_decimal(value);
 }
 

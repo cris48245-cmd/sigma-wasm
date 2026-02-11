@@ -199,6 +199,8 @@ export interface WasmModuleHello {
   set_fave_car(car: string): void;
   get_fave_team(): string;
   set_fave_team(team: string): void;
+  get_decimal(): number;
+  set_decimal(value: number): void;
 }
 
 export interface WasmHello {

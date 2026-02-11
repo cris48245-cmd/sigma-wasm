@@ -13,6 +13,7 @@
 import type { WasmHello, WasmModuleHello } from '../types';
 import { loadWasmModule, validateWasmModule } from '../wasm/loader';
 import { WasmLoadError, WasmInitError } from '../wasm/types';
+import { SliderController } from '../ui/slider';
 
 /**
  * Lazy WASM import - only load when init() is called
@@ -33,6 +34,8 @@ let wasmModuleExports: {
   set_fave_car: (car: string) => void;
   get_fave_team: () => string;
   set_fave_team: (team: string) => void;
+  get_decimal: () => number;
+  set_decimal: (value: number) => void;
 } | null = null;
 
 /**
@@ -87,6 +90,12 @@ const getInitWasm = async (): Promise<unknown> => {
     if ('set_fave_team' in moduleUnknown) {
       moduleKeys.push('set_fave_team');
     }
+    if ('get_decimal' in moduleUnknown) {
+      moduleKeys.push('get_decimal');
+    }
+    if ('set_decimal' in moduleUnknown) {
+      moduleKeys.push('set_decimal');
+    }
     
     // Get all keys for error messages
     const allKeys = Object.keys(moduleUnknown);
@@ -123,6 +132,12 @@ const getInitWasm = async (): Promise<unknown> => {
     if (!('set_fave_team' in moduleUnknown) || typeof moduleUnknown.set_fave_team !== 'function') {
       throw new Error(`Module missing 'set_fave_team' export. Available: ${allKeys.join(', ')}`);
     }
+    if (!('get_decimal' in moduleUnknown) || typeof moduleUnknown.get_decimal !== 'function') {
+      throw new Error(`Module missing 'get_decimal' export. Available: ${allKeys.join(', ')}`);
+    }
+    if (!('set_decimal' in moduleUnknown) || typeof moduleUnknown.set_decimal !== 'function') {
+      throw new Error(`Module missing 'set_decimal' export. Available: ${allKeys.join(', ')}`);
+    }
     
     // Extract and assign functions - we've validated they exist and are functions above
     // Access properties directly after validation
@@ -136,6 +151,8 @@ const getInitWasm = async (): Promise<unknown> => {
     const setFaveCarFunc = moduleUnknown.set_fave_car;
     const getFaveTeamFunc = moduleUnknown.get_fave_team;
     const setFaveTeamFunc = moduleUnknown.set_fave_team;
+    const getDecimalFunc = moduleUnknown.get_decimal;
+    const setDecimalFunc = moduleUnknown.set_decimal;
     
     if (typeof defaultFunc !== 'function') {
       throw new Error('default export is not a function');
@@ -167,6 +184,12 @@ const getInitWasm = async (): Promise<unknown> => {
     if (typeof setFaveTeamFunc !== 'function') {
       throw new Error('set_fave_team export is not a function');
     }
+    if (typeof getDecimalFunc !== 'function') {
+      throw new Error('get_decimal export is not a function');
+    }
+    if (typeof setDecimalFunc !== 'function') {
+      throw new Error('set_decimal export is not a function');
+    }
     
     // TypeScript can't narrow Function to specific signatures after validation
     // Runtime validation ensures these are safe
@@ -191,6 +214,10 @@ const getInitWasm = async (): Promise<unknown> => {
       get_fave_team: getFaveTeamFunc as () => string,
       // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
       set_fave_team: setFaveTeamFunc as (team: string) => void,
+      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+      get_decimal: getDecimalFunc as () => number,
+      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+      set_decimal: setDecimalFunc as (value: number) => void,
     };
   }
   if (!wasmModuleExports) {
@@ -281,6 +308,12 @@ function validateHelloModule(exports: unknown): WasmModuleHello | null {
     if (typeof wasmModuleExports.set_fave_team !== 'function') {
       missingExports.push('set_fave_team (function)');
     }
+    if (typeof wasmModuleExports.get_decimal !== 'function') {
+      missingExports.push('get_decimal (function)');
+    }
+    if (typeof wasmModuleExports.set_decimal !== 'function') {
+      missingExports.push('set_decimal (function)');
+    }
   }
   
   if (missingExports.length > 0) {
@@ -309,6 +342,8 @@ function validateHelloModule(exports: unknown): WasmModuleHello | null {
     set_fave_car: wasmModuleExports.set_fave_car,
     get_fave_team: wasmModuleExports.get_fave_team,
     set_fave_team: wasmModuleExports.set_fave_team,
+    get_decimal: wasmModuleExports.get_decimal,
+    set_decimal: wasmModuleExports.set_decimal,
   };
 }
 
@@ -385,11 +420,14 @@ export const init = async (): Promise<void> => {
   const setFaveCarBtn = document.getElementById('set-fave-car-btn');
   const faveTeamInputEl = document.getElementById('fave-team-input');
   const setFaveTeamBtn = document.getElementById('set-fave-team-btn');
+  const decimalDisplay = document.getElementById('decimal-display');
+  const decimalInputEl = document.getElementById('decimal-slider-input');
   
   if (!counterDisplay || !messageDisplay || 
     !incrementBtn || !messageInputEl || !setMessageBtn ||
     !faveCarDisplay || !faveCarInputEl || !setFaveCarBtn ||
-    !faveTeamDisplay || !faveTeamInputEl || !setFaveTeamBtn
+    !faveTeamDisplay || !faveTeamInputEl || !setFaveTeamBtn ||
+    !decimalDisplay || !decimalInputEl
   ) {
     throw new Error('Required UI elements not found');
   }
@@ -414,7 +452,18 @@ export const init = async (): Promise<void> => {
   }
   
   const faveTeamInput = faveTeamInputEl;
-  
+
+  // Type narrowing for decimal input
+  if (!(decimalInputEl instanceof HTMLInputElement)) {
+    throw new Error('decimal-slider-input element is not an HTMLInputElement');
+  }
+  const decimalInput = decimalInputEl;
+
+  // Initialize slider controller (throttled updates)
+  // Note: We store the reference for potential future cleanup (e.g., destroy() on route unload)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  let decimalSliderController: import('../ui/slider').SliderController | null = null;
+
   // Update display with initial values
   // **Learning Point**: We call WASM functions directly from TypeScript.
   // The wasm-bindgen generated code handles the marshalling between JS and WASM.
@@ -423,11 +472,34 @@ export const init = async (): Promise<void> => {
     messageDisplay.textContent = WASM_HELLO.wasmModule.get_message();
     faveCarDisplay.textContent = WASM_HELLO.wasmModule.get_fave_car();
     faveTeamDisplay.textContent = WASM_HELLO.wasmModule.get_fave_team();
+    // decimal value
+    const decimalVal = WASM_HELLO.wasmModule.get_decimal();
+    decimalDisplay.textContent = decimalVal.toFixed(1);
+    // set input value to match
+    decimalInput.value = String(decimalVal);
   }
   
   // Set up event handlers
   // **Learning Point**: This demonstrates how to call WASM functions in response
   // to user interactions. The state is managed in Rust, but we update the UI in TypeScript.
+
+  // Slider controller: throttle heavy work while keeping visuals responsive
+  decimalSliderController = new SliderController({
+    element: decimalInput,
+    onUpdate: (value: number) => {
+      if (WASM_HELLO.wasmModule) {
+        // set_decimal expects a number; use the throttled callback for wasm side-effects
+        WASM_HELLO.wasmModule.set_decimal(value);
+        // Read back from wasm to ensure canonical display (and to allow formatting)
+        decimalDisplay.textContent = WASM_HELLO.wasmModule.get_decimal().toFixed(1);
+      }
+    },
+    min: -10,
+    max: 10,
+    step: 0.1,
+    throttleMs: 100,
+  });
+
   incrementBtn.addEventListener('click', () => {
     if (WASM_HELLO.wasmModule) {
       WASM_HELLO.wasmModule.increment_counter();
