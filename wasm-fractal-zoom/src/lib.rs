@@ -28,6 +28,13 @@ const PALETTE1: [Color; 5] = [
     Color { r: 255, g: 128, b: 0 },  // Neon Orange
 ];
 
+const PALETTE2: [Color; 4] = [
+    Color { r: 206, g: 10, b: 0 },  // Dark Red
+    Color { r: 206, g: 97, b: 0 },  // Amber
+    Color { r: 1, g: 115, b: 125 }, // Cyan
+    Color { r: 0, g: 160, b: 20 },  // Dark Green
+];
+
 pub fn get_color(iterations: f64, max_iterations: f64, palette_id: u32) -> (u8, u8, u8) {
     if iterations >= max_iterations {
         return (0, 0, 0);
