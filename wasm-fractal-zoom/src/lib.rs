@@ -60,10 +60,10 @@ pub fn get_color(iterations: f64, max_iterations: f64, palette_id: u32) -> (u8, 
 
     // Select palette based on `palette_id`
     let palette = match palette_id {
-        0 => &PALETTE0,
-        1 => &PALETTE1,
-        2 => &PALETTE2,
-        _ => &PALETTE0, // default or fallback
+        0 => PALETTE0.as_slice(), //&[Color]
+        1 => PALETTE1.as_slice(), //&[Color]
+        2 => PALETTE2.as_slice(), //&[Color]
+        _ => PALETTE0.as_slice(), //fallback
     };
 
     // Smooth color interpolation within the palette
