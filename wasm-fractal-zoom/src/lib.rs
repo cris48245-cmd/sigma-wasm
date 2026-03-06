@@ -28,10 +28,15 @@ const PALETTE1: [Color; 5] = [
     Color { r: 255, g: 128, b: 0 },  // Neon Orange
 ];
 
-const PALETTE2: [Color; 3] = [
-    Color { r: 211, g: 105, b: 108 },  
-    Color { r: 65, g: 129, b: 127 }, 
-    Color { r: 167, g: 199, b: 99 }, 
+const PALETTE2: [Color; 8] = [
+    Color { r: 0, g: 113, b: 94 },
+    Color { r: 16, g: 172, b: 168 },
+    Color { r: 26, g: 52, b: 255 },
+    Color { r: 136, g: 132, b: 253 },
+    Color { r: 174, g: 0, b: 100 },
+    Color { r: 252, g: 75, b: 117 },
+    Color { r: 122, g: 91, b: 0 },
+    Color { r: 169, g: 152, b: 12 }, 
 ];
 
 pub fn get_color(iterations: f64, max_iterations: f64, palette_id: u32) -> (u8, u8, u8) {
